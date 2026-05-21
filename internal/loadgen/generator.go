@@ -199,4 +199,3 @@ func (c *collector) finalize(cfg Config) Result {
 		Labels:       labels,
 	}
 }
-
