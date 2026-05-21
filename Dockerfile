@@ -1,10 +1,11 @@
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o /bin/scale-sentry ./cmd/scale-sentry
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -ldflags="-s -w" -o /bin/scale-sentry ./cmd/scale-sentry
 
 FROM gcr.io/distroless/static-debian12:latest
 LABEL org.opencontainers.image.source="https://github.com/ethan-kane-ops/scale-sentry"
