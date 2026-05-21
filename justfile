@@ -1,9 +1,31 @@
+# Version pins — keep in sync with go.mod
+controller_gen_version := "v0.16.5"
+
 default:
     @just --list
 
 # Build the binary into ./bin/ (isolated — does not affect the installed binary)
 build:
     go build -o bin/scale-sentry ./cmd/scale-sentry
+
+# Install controller-gen + setup-envtest at pinned versions into $GOBIN
+tools:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    go install sigs.k8s.io/controller-tools/cmd/controller-gen@{{controller_gen_version}}
+    go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+    echo "✅ tools installed"
+
+# Generate CRD + RBAC manifests from kubebuilder markers.
+# allowDangerousTypes=true permits float64 in status.failureRate (ratio).
+manifests: tools
+    controller-gen rbac:roleName=manager-role crd:allowDangerousTypes=true paths="./..." \
+        output:crd:artifacts:config=config/crd/bases \
+        output:rbac:artifacts:config=config/rbac
+
+# Generate DeepCopy implementations (zz_generated.deepcopy.go)
+generate: tools
+    controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 # Run the locally built binary — safe during development, never touches the installed version
 run *args: build

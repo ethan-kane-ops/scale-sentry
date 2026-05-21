@@ -1,0 +1,16 @@
+domain: ek.co
+layout:
+- go.kubebuilder.io/v4
+projectName: scale-sentry
+repo: github.com/ethan-kane-ops/scale-sentry
+version: "3"
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: ek.co
+  group: validation.scale-sentry
+  kind: ScaleValidation
+  path: github.com/ethan-kane-ops/scale-sentry/api/v1alpha1
+  version: v1alpha1
