@@ -4,9 +4,9 @@ controller_gen_version := "v0.16.5"
 default:
     @just --list
 
-# Build the binary into ./bin/ (isolated — does not affect the installed binary)
+# Build all binaries into ./bin/ (isolated — does not affect the installed binary)
 build:
-    go build -o bin/scale-sentry ./cmd/scale-sentry
+    go build -o bin/ ./cmd/...
 
 # Install controller-gen + setup-envtest at pinned versions into $GOBIN
 tools:
@@ -55,11 +55,11 @@ check: tidy lint test
 clean:
     rm -rf bin/
 
-# Install binary via `go install` and reshim so mise exposes it immediately
+# Install binaries via `go install` and reshim so mise exposes them immediately
 install:
-    go install ./cmd/scale-sentry
+    go install ./cmd/...
     mise reshim 2>/dev/null || true
-    @echo "installed → $(which scale-sentry 2>/dev/null || go env GOBIN)/scale-sentry"
+    @echo "installed → $(go env GOBIN)/{scale-sentry,loadgen}"
 
 # Preview the next release without writing anything
 release-preview bump="auto":
