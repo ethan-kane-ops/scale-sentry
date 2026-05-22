@@ -1,0 +1,64 @@
+# RBAC for the loadgen Job's observer sidecar. The observer reads the
+# target workload's HPA, EndpointSlices, pods, and cgroup cpu.stat
+# (via pods/exec) within a single namespace, so a namespaced Role is
+# sufficient. Namespace is applied at deploy time (see the Helm chart in
+# ENG-38). This file is hand-written — controller-gen only emits the
+# manager-role from kubebuilder markers.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scale-sentry-observer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scale-sentry-observer
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+# pods/exec is required to read cgroup cpu.stat inside the target
+# container. "create" is the verb that authorizes the exec subresource.
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scale-sentry-observer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scale-sentry-observer
+subjects:
+- kind: ServiceAccount
+  name: scale-sentry-observer
