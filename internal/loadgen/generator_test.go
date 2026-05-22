@@ -89,6 +89,42 @@ func TestGeneratorRun_RecordsServer5xxAsFailure(t *testing.T) {
 	if rate := result.FailureRate(); rate != 1.0 {
 		t.Errorf("FailureRate = %v, want 1.0", rate)
 	}
+	if int64(len(result.ErrorSamples)) != result.Sent {
+		t.Errorf("ErrorSamples count = %d, want %d (one per failed request)",
+			len(result.ErrorSamples), result.Sent)
+	}
+	for i, s := range result.ErrorSamples {
+		if s.Category != ErrServer {
+			t.Errorf("ErrorSamples[%d].Category = %q, want Server5xx", i, s.Category)
+		}
+		if s.Status != http.StatusInternalServerError {
+			t.Errorf("ErrorSamples[%d].Status = %d, want 500", i, s.Status)
+		}
+		if s.At.Before(result.Started) {
+			t.Errorf("ErrorSamples[%d].At = %v, before run start %v", i, s.At, result.Started)
+		}
+	}
+}
+
+func TestGeneratorRun_NoErrorSamplesOnClean(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	g, err := New(Config{
+		URL:            srv.URL + "/",
+		TargetRPS:      30,
+		Duration:       300 * time.Millisecond,
+		ConnectionMode: KeepAlive,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result := g.Run(context.Background())
+	if len(result.ErrorSamples) != 0 {
+		t.Errorf("ErrorSamples = %v, want empty on a clean run", result.ErrorSamples)
+	}
 }
 
 func TestGeneratorRun_ContextCancel(t *testing.T) {

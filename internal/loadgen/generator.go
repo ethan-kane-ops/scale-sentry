@@ -85,6 +85,7 @@ func (g *Generator) do(ctx context.Context, c *collector) {
 	start := time.Now()
 	err := g.client.DoTimeout(req, resp, g.cfg.Timeout)
 	latency := time.Since(start)
+	at := time.Now()
 
 	if ctx.Err() != nil {
 		// Don't record requests that completed after cancellation —
@@ -93,10 +94,10 @@ func (g *Generator) do(ctx context.Context, c *collector) {
 	}
 
 	if err != nil {
-		c.recordError(classify(err), latency)
+		c.recordError(classify(err), latency, at)
 		return
 	}
-	c.recordStatus(resp.StatusCode(), latency)
+	c.recordStatus(resp.StatusCode(), latency, at)
 }
 
 // classify maps a fasthttp error to an ErrorCategory.
@@ -133,6 +134,7 @@ type collector struct {
 	statusCounts map[int]int64
 	errors       map[ErrorCategory]int64
 	latencies    []time.Duration
+	errorSamples []ErrorSample
 }
 
 func newCollector() *collector {
@@ -143,7 +145,7 @@ func newCollector() *collector {
 	}
 }
 
-func (c *collector) recordStatus(code int, latency time.Duration) {
+func (c *collector) recordStatus(code int, latency time.Duration, at time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent++
@@ -153,21 +155,33 @@ func (c *collector) recordStatus(code int, latency time.Duration) {
 	case code >= 500:
 		c.errors[ErrServer]++
 		c.failed++
+		c.addSample(ErrServer, code, at)
 	case code >= 400:
 		c.errors[ErrClient]++
 		c.failed++
+		c.addSample(ErrClient, code, at)
 	default:
 		c.succeeded++
 	}
 }
 
-func (c *collector) recordError(cat ErrorCategory, latency time.Duration) {
+func (c *collector) recordError(cat ErrorCategory, latency time.Duration, at time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent++
 	c.failed++
 	c.errors[cat]++
 	c.latencies = append(c.latencies, latency)
+	c.addSample(cat, 0, at)
+}
+
+// addSample appends a failure sample. The caller must hold c.mu. Samples
+// past maxErrorSamples are dropped to bound the JSON Result size.
+func (c *collector) addSample(cat ErrorCategory, status int, at time.Time) {
+	if len(c.errorSamples) >= maxErrorSamples {
+		return
+	}
+	c.errorSamples = append(c.errorSamples, ErrorSample{At: at, Category: cat, Status: status})
 }
 
 func (c *collector) finalize(cfg Config) Result {
@@ -197,5 +211,6 @@ func (c *collector) finalize(cfg Config) Result {
 		LatencyP99:   p99,
 		LatencyMax:   max,
 		Labels:       labels,
+		ErrorSamples: c.errorSamples,
 	}
 }

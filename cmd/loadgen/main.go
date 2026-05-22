@@ -30,6 +30,7 @@ type opts struct {
 	timeout        time.Duration
 	targetMode     string
 	networkPath    string
+	resultFile     string
 }
 
 func main() {
@@ -53,6 +54,7 @@ func main() {
 	f.DurationVar(&o.timeout, "timeout", 5*time.Second, "per-request timeout")
 	f.StringVar(&o.targetMode, "target-mode", "", "informational label: ServiceDefault | AutoDiscoverProbe | CustomPath")
 	f.StringVar(&o.networkPath, "network-path", "", "informational label: ClusterIP | Ingress")
+	f.StringVar(&o.resultFile, "result-file", "", "also write the JSON Result to this path (for the observer sidecar)")
 
 	_ = cmd.MarkFlagRequired("url")
 	_ = cmd.MarkFlagRequired("rps")
@@ -97,10 +99,17 @@ func run(ctx context.Context, o opts) error {
 
 	result := g.Run(ctx)
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(result); err != nil {
+	pretty, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
 		return fmt.Errorf("encode result: %w", err)
+	}
+	if _, err := fmt.Fprintln(os.Stdout, string(pretty)); err != nil {
+		return fmt.Errorf("write result to stdout: %w", err)
+	}
+	if o.resultFile != "" {
+		if err := os.WriteFile(o.resultFile, pretty, 0o644); err != nil {
+			return fmt.Errorf("write result file %s: %w", o.resultFile, err)
+		}
 	}
 	return nil
 }

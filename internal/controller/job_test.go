@@ -1,13 +1,19 @@
 package controller
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
 )
@@ -39,14 +45,40 @@ func TestLoadgenJobName(t *testing.T) {
 	}
 }
 
-func TestResolveTargetURL(t *testing.T) {
+func TestTargetURL(t *testing.T) {
+	tests := []struct {
+		name             string
+		scheme, host     string
+		port             int32
+		path, want       string
+	}{
+		{"root path", "http", "app.demo.svc.cluster.local", 8080, "/", "http://app.demo.svc.cluster.local:8080/"},
+		{"empty path normalized", "http", "h", 80, "", "http://h:80/"},
+		{"missing leading slash", "http", "h", 80, "ready", "http://h:80/ready"},
+		{"https scheme", "https", "h", 443, "/x", "https://h:443/x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := targetURL(tt.scheme, tt.host, tt.port, tt.path); got != tt.want {
+				t.Errorf("targetURL = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveTargetURL_SpecModes(t *testing.T) {
+	// ServiceDefault and CustomPath never touch the API server, so a
+	// reconciler with no client is sufficient.
+	r := &ScaleValidationReconciler{}
+	ctx := context.Background()
+
 	tests := []struct {
 		name string
 		mod  func(*v1alpha1.ScaleValidation)
 		want string
 	}{
 		{
-			name: "service default targets root path",
+			name: "service default targets root",
 			mod:  nil,
 			want: "http://app.demo.svc.cluster.local:8080/",
 		},
@@ -58,41 +90,83 @@ func TestResolveTargetURL(t *testing.T) {
 			},
 			want: "http://app.demo.svc.cluster.local:8080/healthz",
 		},
-		{
-			name: "custom path without leading slash is normalized",
-			mod: func(cr *v1alpha1.ScaleValidation) {
-				cr.Spec.Target.Mode = "CustomPath"
-				cr.Spec.Target.CustomPath = "ready"
-			},
-			want: "http://app.demo.svc.cluster.local:8080/ready",
-		},
-		{
-			name: "custom path mode with empty path falls back to root",
-			mod: func(cr *v1alpha1.ScaleValidation) {
-				cr.Spec.Target.Mode = "CustomPath"
-			},
-			want: "http://app.demo.svc.cluster.local:8080/",
-		},
-		{
-			name: "auto-discover probe falls back to root in ENG-35",
-			mod: func(cr *v1alpha1.ScaleValidation) {
-				cr.Spec.Target.Mode = "AutoDiscoverProbe"
-			},
-			want: "http://app.demo.svc.cluster.local:8080/",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveTargetURL(testCR(tt.mod)); got != tt.want {
+			got, err := r.resolveTargetURL(ctx, testCR(tt.mod))
+			if err != nil {
+				t.Fatalf("resolveTargetURL: %v", err)
+			}
+			if got != tt.want {
 				t.Errorf("resolveTargetURL = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestLoadgenArgs(t *testing.T) {
-	args := loadgenArgs(testCR(nil))
+func TestResolveTargetURL_AutoDiscoverProbe(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "demo"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{
+					Name:  "web",
+					Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 9000}},
+					ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+						HTTPGet: &corev1.HTTPGetAction{
+							Path: "/healthz",
+							Port: intstr.FromString("http"),
+						},
+					}},
+				}}},
+			},
+		},
+	}
+	r := &ScaleValidationReconciler{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build(),
+	}
 
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.Mode = "AutoDiscoverProbe"
+	})
+	got, err := r.resolveTargetURL(context.Background(), cr)
+	if err != nil {
+		t.Fatalf("resolveTargetURL: %v", err)
+	}
+	// The discovered named port (9000) and path override the spec port.
+	if want := "http://app.demo.svc.cluster.local:9000/healthz"; got != want {
+		t.Errorf("resolveTargetURL = %q, want %q", got, want)
+	}
+}
+
+func TestResolveTargetURL_AutoDiscoverProbeMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "demo"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}},
+			},
+		},
+	}
+	r := &ScaleValidationReconciler{
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build(),
+	}
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.Mode = "AutoDiscoverProbe"
+	})
+	if _, err := r.resolveTargetURL(context.Background(), cr); err == nil {
+		t.Error("expected error when the target has no readiness probe")
+	}
+}
+
+func TestLoadgenArgs(t *testing.T) {
+	args := loadgenArgs(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
 	want := map[string]string{
 		"--url":             "http://app.demo.svc.cluster.local:8080/",
 		"--rps":             "150",
@@ -100,7 +174,24 @@ func TestLoadgenArgs(t *testing.T) {
 		"--connection-mode": "KeepAlive",
 		"--target-mode":     "ServiceDefault",
 		"--network-path":    "ClusterIP",
+		"--result-file":     resultFilePath,
 	}
+	assertFlags(t, args, want)
+}
+
+func TestObserverArgs(t *testing.T) {
+	args := observerArgs(testCR(nil))
+	want := map[string]string{
+		"--target-name": "app",
+		"--namespace":   "demo",
+		"--sla":         "3m0s",
+		"--result-file": resultFilePath,
+	}
+	assertFlags(t, args, want)
+}
+
+func assertFlags(t *testing.T, args []string, want map[string]string) {
+	t.Helper()
 	for flag, wantVal := range want {
 		i := slices.Index(args, flag)
 		if i < 0 || i+1 >= len(args) {
@@ -114,8 +205,12 @@ func TestLoadgenArgs(t *testing.T) {
 }
 
 func TestBuildLoadgenJob(t *testing.T) {
-	r := &ScaleValidationReconciler{LoadgenImage: "registry.test/loadgen:v1"}
-	job := r.buildLoadgenJob(testCR(nil))
+	r := &ScaleValidationReconciler{
+		LoadgenImage:           "registry.test/loadgen:v1",
+		ObserverImage:          "registry.test/observer:v1",
+		ObserverServiceAccount: "scale-sentry-observer",
+	}
+	job := r.buildLoadgenJob(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
 
 	if job.Name != "run-loadgen" || job.Namespace != "demo" {
 		t.Errorf("job identity = %s/%s, want demo/run-loadgen", job.Namespace, job.Name)
@@ -126,19 +221,47 @@ func TestBuildLoadgenJob(t *testing.T) {
 	if bl := job.Spec.BackoffLimit; bl == nil || *bl != 0 {
 		t.Errorf("BackoffLimit = %v, want 0 (a load run must not retry)", bl)
 	}
-	c := job.Spec.Template.Spec.Containers
-	if len(c) != 1 || c[0].Image != "registry.test/loadgen:v1" {
-		t.Errorf("container = %+v, want single loadgen image", c)
+
+	pod := job.Spec.Template.Spec
+	if pod.ServiceAccountName != "scale-sentry-observer" {
+		t.Errorf("ServiceAccountName = %q, want scale-sentry-observer", pod.ServiceAccountName)
 	}
-	if rp := job.Spec.Template.Spec.RestartPolicy; rp != corev1.RestartPolicyNever {
-		t.Errorf("RestartPolicy = %s, want Never", rp)
+	if pod.RestartPolicy != corev1.RestartPolicyNever {
+		t.Errorf("RestartPolicy = %s, want Never", pod.RestartPolicy)
+	}
+	if pod.TerminationGracePeriodSeconds == nil || *pod.TerminationGracePeriodSeconds != jobGracePeriodSeconds {
+		t.Errorf("TerminationGracePeriodSeconds = %v, want %d", pod.TerminationGracePeriodSeconds, jobGracePeriodSeconds)
+	}
+
+	if len(pod.Containers) != 1 || pod.Containers[0].Image != "registry.test/loadgen:v1" {
+		t.Errorf("loadgen container = %+v", pod.Containers)
+	}
+	if len(pod.InitContainers) != 1 {
+		t.Fatalf("want 1 init container (observer sidecar), got %d", len(pod.InitContainers))
+	}
+	sidecar := pod.InitContainers[0]
+	if sidecar.Name != observerContainerName || sidecar.Image != "registry.test/observer:v1" {
+		t.Errorf("observer sidecar = %+v", sidecar)
+	}
+	if sidecar.RestartPolicy == nil || *sidecar.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+		t.Errorf("observer RestartPolicy = %v, want Always (native sidecar)", sidecar.RestartPolicy)
+	}
+
+	// Both containers must mount the shared run volume.
+	for _, c := range [][]corev1.VolumeMount{pod.Containers[0].VolumeMounts, sidecar.VolumeMounts} {
+		if len(c) != 1 || c[0].Name != runVolumeName || c[0].MountPath != runVolumePath {
+			t.Errorf("volume mount = %+v, want %s at %s", c, runVolumeName, runVolumePath)
+		}
+	}
+	if len(pod.Volumes) != 1 || pod.Volumes[0].EmptyDir == nil {
+		t.Errorf("want one emptyDir volume, got %+v", pod.Volumes)
 	}
 }
 
 func TestJobConditionTrue(t *testing.T) {
-	jobWith := func(t batchv1.JobConditionType, s corev1.ConditionStatus) *batchv1.Job {
+	jobWith := func(typ batchv1.JobConditionType, s corev1.ConditionStatus) *batchv1.Job {
 		return &batchv1.Job{Status: batchv1.JobStatus{
-			Conditions: []batchv1.JobCondition{{Type: t, Status: s}},
+			Conditions: []batchv1.JobCondition{{Type: typ, Status: s}},
 		}}
 	}
 	tests := []struct {
