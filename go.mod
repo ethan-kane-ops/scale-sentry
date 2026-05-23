@@ -8,9 +8,10 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/valyala/fasthttp v1.71.0
 	golang.org/x/time v0.15.0
-	k8s.io/api v0.36.0
+	k8s.io/api v0.36.1
 	k8s.io/apimachinery v0.36.1
-	k8s.io/client-go v0.36.0
+	k8s.io/client-go v0.36.1
+	k8s.io/kube-aggregator v0.36.1
 	sigs.k8s.io/controller-runtime v0.24.1
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1
 	sigs.k8s.io/controller-tools v0.16.5
