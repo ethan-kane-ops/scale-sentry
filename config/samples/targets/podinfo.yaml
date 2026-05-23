@@ -1,0 +1,83 @@
+# podinfo — a lightweight HTTP echo workload by Stefan Prodan. Used as the
+# canonical demo target for ScaleValidation runs. Pairs with the sample CRs
+# in config/samples/scalevalidation-*.yaml.
+#
+# Note: this is a vanilla HTTP target — it is not CPU-bound or memory-bound
+# under load. ENG-39 introduces a real CPU-burner workload + metrics-server
+# tuning for verdict-asserting E2E runs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  labels:
+    app: podinfo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: podinfo
+  template:
+    metadata:
+      labels:
+        app: podinfo
+    spec:
+      containers:
+      - name: podinfo
+        image: ghcr.io/stefanprodan/podinfo:6.6.2
+        ports:
+        - name: http
+          containerPort: 9898
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  labels:
+    app: podinfo
+spec:
+  selector:
+    app: podinfo
+  ports:
+  - name: http
+    port: 9898
+    targetPort: http
+---
+# HPA on CPU utilisation. Without metrics-server installed in the cluster
+# the HPA cannot fetch metrics and the ScaleValidation run will reach phase
+# Failed with an HPAUnableToScale diagnostic — exactly the kind of finding
+# the operator is designed to surface.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: podinfo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

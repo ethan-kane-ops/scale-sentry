@@ -1,0 +1,45 @@
+# Default values for the scale-sentry chart.
+
+nameOverride: ""
+fullnameOverride: ""
+
+controller:
+  replicaCount: 1
+  image:
+    repository: scale-sentry
+    tag: latest
+    pullPolicy: IfNotPresent
+  # No CPU limits by design — let the kernel scheduler arbitrate. Memory
+  # is the only hard cap.
+  resources:
+    limits:
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  # Leader election is enabled by default so multi-replica deployments are
+  # safe; single-replica deployments still work, just with a small extra
+  # lease overhead.
+  leaderElect: true
+  devLogging: false
+
+# Images the controller injects into the loadgen Job pod spec.
+loadgenImage: scale-sentry-loadgen:latest
+observerImage: scale-sentry-observer:latest
+
+# Observer ServiceAccount name. Fixed at "scale-sentry-observer" because the
+# observer Role + RoleBinding are symlinked from config/rbac/observer_role.yaml
+# (zero-drift source of truth) and hardcode that name. The chart provisions
+# the SA + Role + RoleBinding in its release namespace; CRs created in OTHER
+# namespaces need the observer RBAC applied there separately.
+observerServiceAccount: scale-sentry-observer
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+# rbac.create gates the controller manager ClusterRole + binding only. The
+# observer RBAC (symlinked from config/) is always installed because the
+# operator cannot function without it.
+rbac:
+  create: true

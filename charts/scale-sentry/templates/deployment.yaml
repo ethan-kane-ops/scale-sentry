@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "scale-sentry.fullname" . }}-controller
+  labels:
+    {{- include "scale-sentry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "scale-sentry.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        {{- include "scale-sentry.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: {{ include "scale-sentry.controllerServiceAccountName" . }}
+      containers:
+      - name: controller
+        image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+        imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+        args:
+        - controller
+        - --loadgen-image={{ .Values.loadgenImage }}
+        - --observer-image={{ .Values.observerImage }}
+        - --observer-service-account={{ .Values.observerServiceAccount }}
+        {{- if .Values.controller.leaderElect }}
+        - --leader-elect
+        {{- end }}
+        {{- if .Values.controller.devLogging }}
+        - --dev-logging
+        {{- end }}
+        ports:
+        - name: metrics
+          containerPort: 8080
+        - name: probe
+          containerPort: 8081
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: probe
+          initialDelaySeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: probe
+          initialDelaySeconds: 15
+        resources:
+          {{- toYaml .Values.controller.resources | nindent 10 }}

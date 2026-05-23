@@ -2,15 +2,20 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  ci:
+  check:
+    name: tidy + lint + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +23,80 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go mod tidy && git diff --exit-code go.mod go.sum
-      - run: go vet ./...
-      - run: go test -race ./...
+      - uses: jdx/mise-action@v2
+        with:
+          experimental: true
+      - run: just check
+
+  manifest-drift:
+    name: generated manifests in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: jdx/mise-action@v2
+        with:
+          experimental: true
+      - run: just generate manifests
+      - name: Fail if generated files drifted
+        run: git diff --exit-code -- api/ config/
+
+  chart-rbac-check:
+    name: chart manager RBAC in sync with config/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          experimental: true
+      - run: just chart-rbac-check
+
+  kubeconform:
+    name: kubeconform manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          experimental: true
+      - run: |
+          kubeconform -strict -summary -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            config/crd/bases config/rbac config/samples
+
+  images:
+    name: docker build (${{ matrix.cmd }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cmd: [scale-sentry, loadgen, observer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: |
+            CMD=${{ matrix.cmd }}
+          tags: scale-sentry-${{ matrix.cmd }}:ci
+          push: false
+
+  e2e:
+    name: kind smoke E2E
+    runs-on: ubuntu-latest
+    needs: [check, images]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: jdx/mise-action@v2
+        with:
+          experimental: true
+      - run: just test-e2e

@@ -1,0 +1,20 @@
+# CustomPath run — loadgen targets a specific HTTP path on the workload
+# (here, podinfo's /api/info JSON endpoint).
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: podinfo-custompath
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  sla: 90s
+  target:
+    mode: CustomPath
+    customPath: /api/info
+    port: 9898
+    networkPath: ClusterIP
+  load:
+    baseRps: 150
+    concurrencyFactor: 10

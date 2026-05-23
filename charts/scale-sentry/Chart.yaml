@@ -1,0 +1,20 @@
+apiVersion: v2
+name: scale-sentry
+description: Kubernetes controller and validation engine for HPA scaling and traffic resilience
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/ethan-kane-ops/scale-sentry
+sources:
+- https://github.com/ethan-kane-ops/scale-sentry
+keywords:
+- kubernetes
+- operator
+- hpa
+- autoscaling
+- validation
+- chaos
+- resilience
+maintainers:
+- name: ethan-kane-ops
+  url: https://github.com/ethan-kane-ops

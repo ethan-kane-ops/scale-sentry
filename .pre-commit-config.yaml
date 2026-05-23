@@ -8,16 +8,30 @@ repos:
 
   - repo: local
     hooks:
+      # Validate generated CRDs, RBAC, and sample CRs against upstream
+      # k8s schemas + the datreeio CRD catalog (so our own ScaleValidation
+      # schema is recognised). Helm-templated YAML is excluded — Helm
+      # syntax breaks raw YAML parsing. Uses the mise-managed kubeconform
+      # binary on PATH.
+      - id: kubeconform
+        name: kubeconform
+        entry: >
+          kubeconform -strict -summary -ignore-missing-schemas
+          -schema-location default
+          -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+        language: system
+        files: ^config/(crd/bases|rbac|samples)/.*\.ya?ml$
+
       - id: go-vet
         name: go vet
-        entry: go vet ./...
+        entry: go vet -tags envtest,e2e ./...
         language: system
         pass_filenames: false
         types: [go]
 
       - id: golangci-lint
         name: golangci-lint
-        entry: golangci-lint run
+        entry: golangci-lint run --build-tags envtest,e2e
         language: system
         pass_filenames: false
         types: [go]
