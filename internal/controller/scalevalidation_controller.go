@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +28,15 @@ import (
 
 	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
+)
+
+// Readiness gate constants. The loadgen Job is held back until the target
+// Deployment has at least one ready replica — without this the Job dials a
+// Service with no endpoints and the entire run wastes its SLA window on
+// connection-refused errors before the workload is even up.
+const (
+	targetReadyPollInterval = 5 * time.Second
+	targetReadyWaitTimeout  = 5 * time.Minute
 )
 
 // Lifecycle phases written to status.phase. Pending and Running are
@@ -60,12 +70,17 @@ type ScaleValidationReconciler struct {
 	// nil — the Clientset pods/log path is used. The integration suite
 	// injects a stub because envtest runs no kubelet to serve logs.
 	observerLogFn func(context.Context, *corev1.Pod) ([]byte, error)
+	// targetReadyTimeout overrides targetReadyWaitTimeout in tests so the
+	// readiness-gate timeout path can be exercised without sleeping. Zero
+	// means use the production default.
+	targetReadyTimeout time.Duration
 }
 
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations/finalizers,verbs=update
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 //+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
@@ -97,6 +112,22 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if cr.Status.Phase == PhaseRunning {
 			log.Info("loadgen job vanished before completion", "job", jobKey.Name)
 			return r.setPhase(ctx, &cr, PhaseError)
+		}
+		ready, readyReplicas, err := r.targetReady(ctx, &cr)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !ready {
+			timeout := r.targetReadyTimeout
+			if timeout == 0 {
+				timeout = targetReadyWaitTimeout
+			}
+			if time.Since(cr.CreationTimestamp.Time) > timeout {
+				return r.failTargetNotReady(ctx, &cr, readyReplicas, timeout)
+			}
+			log.Info("target deployment not ready, requeueing",
+				"target", cr.Spec.TargetRef.Name, "readyReplicas", readyReplicas)
+			return ctrl.Result{RequeueAfter: targetReadyPollInterval}, nil
 		}
 		return r.spawnJob(ctx, &cr)
 	case err != nil:
@@ -207,6 +238,40 @@ func applyReport(cr *v1alpha1.ScaleValidation, report observer.Report) {
 	cr.Status.TotalRequests = report.TotalRequests
 	cr.Status.FailedRequests = report.FailedRequests
 	cr.Status.FailureRate = report.FailureRate
+}
+
+// targetReady reports whether the CR's target Deployment has at least one
+// ready replica. A missing Deployment counts as not-ready — the user may
+// have applied the CR before the workload, or the workload may still be
+// rolling out — and is reported with readyReplicas=0 rather than as an
+// error. The replica count is returned so the timeout diagnostic can
+// distinguish "deployment missing" (0 ready) from "deployment exists but
+// none healthy" (also 0 ready, but the surrounding events will explain why).
+func (r *ScaleValidationReconciler) targetReady(ctx context.Context, cr *v1alpha1.ScaleValidation) (bool, int32, error) {
+	var deploy appsv1.Deployment
+	key := types.NamespacedName{Namespace: cr.Namespace, Name: cr.Spec.TargetRef.Name}
+	if err := r.Get(ctx, key, &deploy); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, 0, nil
+		}
+		return false, 0, fmt.Errorf("get target deployment %s: %w", cr.Spec.TargetRef.Name, err)
+	}
+	return deploy.Status.ReadyReplicas >= 1, deploy.Status.ReadyReplicas, nil
+}
+
+// failTargetNotReady appends a Critical TargetNotReady diagnostic and moves
+// the CR to PhaseError. Called when the target Deployment never reaches
+// readyReplicas>=1 within the wait window — the loadgen run cannot proceed
+// because there is nothing to send traffic to.
+func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *v1alpha1.ScaleValidation, readyReplicas int32, timeout time.Duration) (ctrl.Result, error) {
+	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{
+		Type:     "TargetNotReady",
+		Severity: "Critical",
+		Message: fmt.Sprintf("target deployment %s/%s had %d ready replicas after waiting %s",
+			cr.Namespace, cr.Spec.TargetRef.Name, readyReplicas, timeout),
+		Recommendation: "ensure the target Deployment is healthy before applying the ScaleValidation",
+	})
+	return r.setPhase(ctx, cr, PhaseError)
 }
 
 // spawnJob creates the loadgen Job for cr and moves it to Running.

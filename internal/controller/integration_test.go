@@ -90,6 +90,22 @@ func mustCreate(t *testing.T, obj client.Object) {
 	}
 }
 
+// mustCreateReadyTarget creates the target Deployment the CR points at and
+// patches its status so readyReplicas>=1. The reconciler's readiness gate
+// holds the loadgen Job back until this is true, so every test that wants
+// to drive the CR past Pending needs it.
+func mustCreateReadyTarget(t *testing.T, ns, name string) {
+	t.Helper()
+	deploy := newTargetDeployment(ns, name, false)
+	mustCreate(t, deploy)
+	deploy.Status.Replicas = 1
+	deploy.Status.ReadyReplicas = 1
+	deploy.Status.AvailableReplicas = 1
+	if err := k8sClient.Status().Update(context.Background(), deploy); err != nil {
+		t.Fatalf("set deployment status: %v", err)
+	}
+}
+
 func reconcileCR(t *testing.T, r *ScaleValidationReconciler, ns, name string) {
 	t.Helper()
 	_, err := r.Reconcile(context.Background(), ctrl.Request{
@@ -189,6 +205,7 @@ func createObserverPod(t *testing.T, ns, crName string) {
 func TestIntegration_PendingThenRunning(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
 	mustCreate(t, newScaleValidation(ns, "run", nil))
 
 	reconcileCR(t, r, ns, "run")
@@ -234,6 +251,7 @@ func TestIntegration_JobVanishedDuringRun(t *testing.T) {
 func TestIntegration_JobFailedConditionIsError(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
 	mustCreate(t, newScaleValidation(ns, "run", nil))
 
 	reconcileCR(t, r, ns, "run")
@@ -265,6 +283,7 @@ func TestIntegration_FinishRunSucceeded(t *testing.T) {
 		return []byte("observer: starting\n" + line + "\n"), nil
 	}
 
+	mustCreateReadyTarget(t, ns, "app")
 	mustCreate(t, newScaleValidation(ns, "run", nil))
 	reconcileCR(t, r, ns, "run")
 	reconcileCR(t, r, ns, "run")
@@ -301,6 +320,7 @@ func TestIntegration_FinishRunFailedVerdict(t *testing.T) {
 		return []byte(line + "\n"), nil
 	}
 
+	mustCreateReadyTarget(t, ns, "app")
 	mustCreate(t, newScaleValidation(ns, "run", nil))
 	reconcileCR(t, r, ns, "run")
 	reconcileCR(t, r, ns, "run")
@@ -342,7 +362,14 @@ func TestIntegration_ShadowControllerCreatesCR(t *testing.T) {
 func TestIntegration_AutoDiscoverProbe(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
-	mustCreate(t, newTargetDeployment(ns, "app", true))
+	deploy := newTargetDeployment(ns, "app", true)
+	mustCreate(t, deploy)
+	deploy.Status.Replicas = 1
+	deploy.Status.ReadyReplicas = 1
+	deploy.Status.AvailableReplicas = 1
+	if err := k8sClient.Status().Update(context.Background(), deploy); err != nil {
+		t.Fatalf("set deployment status: %v", err)
+	}
 	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
 	}))
@@ -359,5 +386,87 @@ func TestIntegration_AutoDiscoverProbe(t *testing.T) {
 	// The discovered probe port (9000) and path (/healthz) win over the spec.
 	if url := args[i+1]; !strings.HasSuffix(url, ":9000/healthz") {
 		t.Errorf("loadgen --url = %q, want the discovered :9000/healthz endpoint", url)
+	}
+}
+
+// TestIntegration_TargetMissing_HoldsPending exercises the readiness gate
+// for the "user applied the CR before the Deployment exists" case: the
+// reconciler must not spawn the loadgen Job, must not error, and must
+// leave the CR in Pending so the next requeue can pick the workload up
+// once it lands.
+func TestIntegration_TargetMissing_HoldsPending(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+
+	if got := getCR(t, ns, "run").Status.Phase; got != PhasePending {
+		t.Fatalf("phase = %q, want Pending while target is missing", got)
+	}
+	var job batchv1.Job
+	err := k8sClient.Get(context.Background(),
+		types.NamespacedName{Namespace: ns, Name: "run-loadgen"}, &job)
+	if err == nil {
+		t.Fatal("loadgen Job created while target Deployment is missing")
+	}
+}
+
+// TestIntegration_TargetUnready_ThenReady covers the typical sequence: the
+// Deployment exists but is still rolling out (readyReplicas=0), and only
+// once it becomes ready does the controller spawn the Job. This is the
+// regression test for the live bug observed in `just dev-up`, where the
+// Job was firing against zero endpoints.
+func TestIntegration_TargetUnready_ThenReady(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	deploy := newTargetDeployment(ns, "app", false)
+	mustCreate(t, deploy)
+	// Deployment exists, no ready replicas yet.
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+	if got := getCR(t, ns, "run").Status.Phase; got != PhasePending {
+		t.Fatalf("phase = %q, want Pending while readyReplicas=0", got)
+	}
+
+	// Workload becomes ready.
+	deploy.Status.Replicas = 1
+	deploy.Status.ReadyReplicas = 1
+	deploy.Status.AvailableReplicas = 1
+	if err := k8sClient.Status().Update(context.Background(), deploy); err != nil {
+		t.Fatalf("set deployment status: %v", err)
+	}
+
+	reconcileCR(t, r, ns, "run")
+	if got := getCR(t, ns, "run").Status.Phase; got != PhaseRunning {
+		t.Fatalf("phase = %q, want Running once target is ready", got)
+	}
+	getJob(t, ns, "run-loadgen") // panics via t.Fatalf if absent
+}
+
+// TestIntegration_TargetNotReady_TimesOut drives the timeout branch via
+// the test-only targetReadyTimeout override: a 1ns timeout means the very
+// first gate check (target missing) is over the limit, so the CR is
+// failed with a TargetNotReady diagnostic instead of looping forever.
+func TestIntegration_TargetNotReady_TimesOut(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	r.targetReadyTimeout = time.Nanosecond
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run") // empty -> Pending
+	reconcileCR(t, r, ns, "run") // Pending + no target + timeout -> Error
+	got := getCR(t, ns, "run")
+	if got.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error after readiness timeout", got.Status.Phase)
+	}
+	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "TargetNotReady" {
+		t.Errorf("diagnostics = %+v, want one TargetNotReady alert", got.Status.Diagnostics)
+	}
+	if got.Status.Diagnostics[0].Severity != "Critical" {
+		t.Errorf("severity = %q, want Critical", got.Status.Diagnostics[0].Severity)
 	}
 }
