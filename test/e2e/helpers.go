@@ -128,4 +128,3 @@ func dumpCR(t *testing.T, c client.Client, ns, name string) {
 	}
 	t.Logf("ScaleValidation %s/%s status:\n%s", ns, name, string(body))
 }
-
