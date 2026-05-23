@@ -111,7 +111,9 @@ kind-load: docker-build
         scale-sentry-loadgen:{{image_tag}} \
         scale-sentry-observer:{{image_tag}}
 
-# Smoke E2E: build images, load into Kind, install chart, run the e2e suite
+# Full verdict E2E: build images, load into Kind (incl. hpa-example so
+# scale-up does not trigger a 5x parallel registry.k8s.io pull storm
+# that can starve the Kind control plane), install chart, run the suite.
 test-e2e: kind-create kind-load deploy
     #!/usr/bin/env bash
     set -euo pipefail
@@ -119,7 +121,11 @@ test-e2e: kind-create kind-load deploy
     # start asserting against it.
     kubectl wait --for=condition=Available --timeout=120s \
         -n default deployment/scale-sentry-controller
-    go test -tags e2e -timeout=10m ./test/e2e/...
+    # Pre-warm the target workload image inside the Kind node so HPA
+    # scale-up does not have to pull it once per new replica.
+    docker pull registry.k8s.io/hpa-example
+    kind load docker-image --name {{kind_cluster}} registry.k8s.io/hpa-example
+    go test -tags e2e -count=1 -timeout=15m ./test/e2e/...
 
 # Spin up a dev cluster with the chart installed; no tests run, cluster stays up
 dev-up: kind-create kind-load deploy
