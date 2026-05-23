@@ -1,9 +1,13 @@
 # RBAC for the loadgen Job's observer sidecar. The observer reads the
-# target workload's HPA, EndpointSlices, pods, and cgroup cpu.stat
-# (via pods/exec) within a single namespace, so a namespaced Role is
-# sufficient. Namespace is applied at deploy time (see the Helm chart in
-# ENG-38). This file is hand-written — controller-gen only emits the
-# manager-role from kubebuilder markers.
+# target workload's HPA, EndpointSlices, and pods within a single
+# namespace, and scrapes the kubelet's cAdvisor `/metrics/cadvisor`
+# endpoint through the apiserver proxy for CFS throttle counters.
+#
+# The proxy hop requires `nodes/proxy` (cluster-scoped) — modelled as a
+# ClusterRoleBinding to the same observer SA. The rest stays a namespaced
+# Role since it only touches in-namespace objects. Namespace is applied at
+# deploy time (see the Helm chart in ENG-38). This file is hand-written
+# — controller-gen only emits the manager-role from kubebuilder markers.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -28,14 +32,6 @@ rules:
   verbs:
   - get
   - list
-# pods/exec is required to read cgroup cpu.stat inside the target
-# container. "create" is the verb that authorizes the exec subresource.
-- apiGroups:
-  - ""
-  resources:
-  - pods/exec
-  verbs:
-  - create
 - apiGroups:
   - discovery.k8s.io
   resources:
@@ -62,3 +58,19 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: scale-sentry-observer
+---
+# Cluster-scoped read for kubelet cAdvisor scraping. The verb is `get`
+# on the nodes/proxy subresource — read-only and substantially lower
+# privilege than the original `pods/exec` (`create`) on every workload
+# container in the namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scale-sentry-observer-cadvisor
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes/proxy
+  verbs:
+  - get

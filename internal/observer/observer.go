@@ -88,6 +88,11 @@ type Session struct {
 	clientset  kubernetes.Interface
 	restConfig *rest.Config
 
+	// cadvisorOpen overrides the kubelet cAdvisor scrape opener in tests
+	// so the cgroup pipeline can be exercised without a live kubelet.
+	// Production leaves it nil and falls through to the typed clientset.
+	cadvisorOpen cadvisorReader
+
 	mu     sync.Mutex
 	events []leakage.EndpointEvent
 }
