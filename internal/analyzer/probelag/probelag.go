@@ -26,13 +26,27 @@ import (
 // Timestamp pointers are nil when the corresponding condition is absent or
 // has status != True.
 type Report struct {
-	Scheduled       *time.Time
-	Initialized     *time.Time
-	ContainersReady *time.Time
-	Ready           *time.Time
+	Scheduled             *time.Time
+	ReadyToStartContainers *time.Time
+	Initialized           *time.Time
+	ContainersReady       *time.Time
+	Ready                 *time.Time
 
-	// SchedulingLatency is Scheduled → Initialized.
+	// SchedulingLatency is Scheduled → Initialized (kept for backwards
+	// compatibility; equals TrueSchedulingLatency + InitContainerRuntime
+	// when the kubelet exposes PodReadyToStartContainers).
 	SchedulingLatency time.Duration
+	// TrueSchedulingLatency is Scheduled → PodReadyToStartContainers — the
+	// kube-scheduler bind + kubelet sandbox setup phase. Zero when the
+	// PodReadyToStartContainers condition is absent (clusters older than
+	// the GA of the condition or where the feature gate is off).
+	TrueSchedulingLatency time.Duration
+	// InitContainerRuntime is PodReadyToStartContainers → Initialized —
+	// init-container image pull + execution time, which previously rolled
+	// up into SchedulingLatency and inflated it whenever a workload used
+	// non-trivial init containers (sidecar bootstraps, schema migrations).
+	// Zero when PodReadyToStartContainers is absent.
+	InitContainerRuntime time.Duration
 	// StartupLatency is Initialized → ContainersReady (container image pull,
 	// process start, dependencies).
 	StartupLatency time.Duration
@@ -71,6 +85,8 @@ func FromPodConditions(conds []corev1.PodCondition, periodSeconds int32) Report 
 		switch c.Type {
 		case corev1.PodScheduled:
 			r.Scheduled = &ts
+		case corev1.PodReadyToStartContainers:
+			r.ReadyToStartContainers = &ts
 		case corev1.PodInitialized:
 			r.Initialized = &ts
 		case corev1.ContainersReady:
@@ -81,6 +97,15 @@ func FromPodConditions(conds []corev1.PodCondition, periodSeconds int32) Report 
 	}
 
 	r.SchedulingLatency = diff(r.Scheduled, r.Initialized)
+	// Only populate the split when the kubelet exposed
+	// PodReadyToStartContainers (kubernetes >=1.29 GA, gated earlier).
+	// Without that timestamp the boundary between scheduler/sandbox and
+	// init-container work is unknowable, so both halves stay zero and
+	// SchedulingLatency remains the only number consumers can trust.
+	if r.ReadyToStartContainers != nil {
+		r.TrueSchedulingLatency = diff(r.Scheduled, r.ReadyToStartContainers)
+		r.InitContainerRuntime = diff(r.ReadyToStartContainers, r.Initialized)
+	}
 	r.StartupLatency = diff(r.Initialized, r.ContainersReady)
 	r.ReadinessLag = diff(r.ContainersReady, r.Ready)
 	r.TotalStartupLatency = diff(r.Scheduled, r.Ready)

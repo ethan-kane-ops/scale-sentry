@@ -40,6 +40,39 @@ func TestFromPodConditions_ComputesAllLatencies(t *testing.T) {
 	if r.TotalStartupLatency != 7*time.Second {
 		t.Errorf("TotalStartupLatency = %v, want 7s", r.TotalStartupLatency)
 	}
+	// Without PodReadyToStartContainers the split stays zero, but
+	// SchedulingLatency keeps its legacy meaning.
+	if r.TrueSchedulingLatency != 0 || r.InitContainerRuntime != 0 {
+		t.Errorf("split = (%v, %v), want zero when ReadyToStartContainers absent",
+			r.TrueSchedulingLatency, r.InitContainerRuntime)
+	}
+}
+
+// TestFromPodConditions_SplitsSchedulingWhenReadyToStartContainersPresent
+// covers the ENG-40.8 fix: a workload with non-trivial init containers
+// should attribute init runtime to InitContainerRuntime rather than
+// inflating SchedulingLatency (which previously rolled scheduling +
+// sandbox + init into one bucket and made the SLA verdict misleading).
+func TestFromPodConditions_SplitsSchedulingWhenReadyToStartContainersPresent(t *testing.T) {
+	start := t0()
+	conds := []corev1.PodCondition{
+		cond(corev1.PodScheduled, start, corev1.ConditionTrue),
+		cond(corev1.PodReadyToStartContainers, start.Add(2*time.Second), corev1.ConditionTrue),
+		cond(corev1.PodInitialized, start.Add(8*time.Second), corev1.ConditionTrue),
+		cond(corev1.ContainersReady, start.Add(10*time.Second), corev1.ConditionTrue),
+		cond(corev1.PodReady, start.Add(11*time.Second), corev1.ConditionTrue),
+	}
+	r := FromPodConditions(conds, 5)
+
+	if r.SchedulingLatency != 8*time.Second {
+		t.Errorf("SchedulingLatency = %v, want 8s (legacy total)", r.SchedulingLatency)
+	}
+	if r.TrueSchedulingLatency != 2*time.Second {
+		t.Errorf("TrueSchedulingLatency = %v, want 2s (Scheduled -> ReadyToStartContainers)", r.TrueSchedulingLatency)
+	}
+	if r.InitContainerRuntime != 6*time.Second {
+		t.Errorf("InitContainerRuntime = %v, want 6s (ReadyToStartContainers -> Initialized)", r.InitContainerRuntime)
+	}
 }
 
 func TestFromPodConditions_IgnoresFalseStatus(t *testing.T) {
