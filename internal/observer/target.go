@@ -15,11 +15,14 @@ import (
 
 // target is the resolved set of objects the observer watches for one run.
 type target struct {
-	// samplePod is the pod used for cgroup scraping.
+	// samplePod is the pod used for cgroup scraping (a pre-existing
+	// replica — cgroup analysis tracks the running workload, not the
+	// cold-start subject).
 	samplePod *corev1.Pod
-	// newestPod is the most recently created pod — the cold-start subject
-	// whose conditions feed the probe-lag analyzer.
-	newestPod *corev1.Pod
+	// selector is the deployment's label selector, stored so the
+	// finalization re-lists pods and finds whichever ones the HPA spun up
+	// during the run.
+	selector string
 	// hpa is the HorizontalPodAutoscaler scaling the target, or nil.
 	hpa *autoscalingv2.HorizontalPodAutoscaler
 }
@@ -43,16 +46,24 @@ func (s *Session) resolveTarget(ctx context.Context) (*target, error) {
 	}
 	return &target{
 		samplePod: &pods.Items[0],
-		newestPod: newestPod(pods.Items),
+		selector:  sel.String(),
 		hpa:       s.findHPA(ctx),
 	}, nil
 }
 
-// newestPod returns the pod with the latest creation timestamp.
-func newestPod(pods []corev1.Pod) *corev1.Pod {
-	newest := &pods[0]
+// pickColdStartPod returns the newest pod whose CreationTimestamp is
+// strictly after runStart — i.e. a pod the HPA spun up during the run.
+// Returns nil when no such pod exists (no scale-up happened), so the
+// probe-lag analyzer is skipped instead of being fed a stale pre-stress
+// pod whose conditions describe an unrelated cold start.
+func pickColdStartPod(pods []corev1.Pod, runStart time.Time) *corev1.Pod {
+	var newest *corev1.Pod
 	for i := range pods {
-		if pods[i].CreationTimestamp.After(newest.CreationTimestamp.Time) {
+		ct := pods[i].CreationTimestamp.Time
+		if !ct.After(runStart) {
+			continue
+		}
+		if newest == nil || ct.After(newest.CreationTimestamp.Time) {
 			newest = &pods[i]
 		}
 	}
@@ -117,17 +128,23 @@ func (s *Session) pollHPA(ctx context.Context, watcher *hpa.Watcher, t *target) 
 	}
 }
 
-// collectProbeLag re-fetches the cold-start pod and builds its probe-lag
-// report from the pod conditions and the readiness probe's periodSeconds.
-func (s *Session) collectProbeLag(ctx context.Context, t *target) *probelag.Report {
-	if t.newestPod == nil {
+// collectProbeLag re-lists the target's pods and picks the cold-start
+// subject — the newest pod the HPA spun up after the run began — then
+// builds its probe-lag report from the pod conditions and the readiness
+// probe's periodSeconds. Returns nil when no scale-up pod exists so the
+// analyzer does not emit a verdict against an unrelated pre-stress pod.
+func (s *Session) collectProbeLag(ctx context.Context, t *target, runStart time.Time) *probelag.Report {
+	if t == nil || t.selector == "" {
 		return nil
 	}
-	pod := t.newestPod
-	if fresh, err := s.clientset.CoreV1().Pods(s.cfg.Namespace).Get(ctx, pod.Name, metav1.GetOptions{}); err != nil {
-		warn("get pod %s for probelag: %v", pod.Name, err)
-	} else {
-		pod = fresh
+	pods, err := s.clientset.CoreV1().Pods(s.cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: t.selector})
+	if err != nil {
+		warn("list pods for probelag: %v", err)
+		return nil
+	}
+	pod := pickColdStartPod(pods.Items, runStart)
+	if pod == nil {
+		return nil
 	}
 	r := probelag.FromPodConditions(pod.Status.Conditions, readinessPeriodSeconds(pod))
 	return &r
