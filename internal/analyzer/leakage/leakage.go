@@ -127,25 +127,23 @@ func Correlate(events []EndpointEvent, errors []ErrorSample, leakageWindow time.
 		correlated[i] = CorrelatedEvent{Event: ev}
 	}
 
+	// Two-pointer scan over sorted events + sorted errors. Both streams
+	// advance monotonically forward in time, so the original O(E*N) match
+	// degenerates to O(E + N): the event cursor only moves past windows
+	// that have fully closed before the current error, and once it does,
+	// later errors (whose timestamps are >= the current one) cannot fall
+	// inside those events either.
+	j := 0
 	for _, errSample := range sortedErrors {
-		assigned := false
-		// An error is "leaked" if it falls in any [event.At, event.At + window).
-		for i, ev := range readyEvents {
-			if errSample.At.Before(ev.At) {
-				continue
-			}
-			if errSample.At.Sub(ev.At) >= leakageWindow {
-				continue
-			}
-			correlated[i].Errors = append(correlated[i].Errors, errSample)
-			assigned = true
-			break
+		for j < len(readyEvents) && !errSample.At.Before(readyEvents[j].At.Add(leakageWindow)) {
+			j++
 		}
-		if assigned {
-			r.LeakedRequests++
-		} else {
+		if j >= len(readyEvents) || errSample.At.Before(readyEvents[j].At) {
 			r.CleanRequests++
+			continue
 		}
+		correlated[j].Errors = append(correlated[j].Errors, errSample)
+		r.LeakedRequests++
 	}
 
 	r.Correlated = correlated

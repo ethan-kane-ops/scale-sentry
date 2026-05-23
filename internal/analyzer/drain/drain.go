@@ -88,24 +88,21 @@ func Correlate(events []leakage.EndpointEvent, errors []leakage.ErrorSample, dra
 		correlated[i] = CorrelatedRemoval{Event: ev}
 	}
 
+	// Two-pointer scan over sorted removals + sorted errors — same
+	// rationale as the leakage analyzer: both streams move forward in
+	// time, so a closed drain window cannot re-open for later errors,
+	// turning the old O(R*E) match into O(R + E).
+	j := 0
 	for _, es := range sorted {
-		assigned := false
-		for i, ev := range removals {
-			if es.At.Before(ev.At) {
-				continue
-			}
-			if es.At.Sub(ev.At) >= drainWindow {
-				continue
-			}
-			correlated[i].Errors = append(correlated[i].Errors, es)
-			assigned = true
-			break
+		for j < len(removals) && !es.At.Before(removals[j].At.Add(drainWindow)) {
+			j++
 		}
-		if assigned {
-			r.DroppedRequests++
-		} else {
+		if j >= len(removals) || es.At.Before(removals[j].At) {
 			r.CleanRequests++
+			continue
 		}
+		correlated[j].Errors = append(correlated[j].Errors, es)
+		r.DroppedRequests++
 	}
 
 	r.Correlated = correlated
