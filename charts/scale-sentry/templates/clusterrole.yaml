@@ -1,0 +1,38 @@
+{{- if .Values.rbac.create -}}
+# Mirrors config/rbac/role.yaml. Regenerate that file with `just manifests`
+# and copy the rules block here if the kubebuilder markers change.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "scale-sentry.fullname" . }}-manager
+  labels:
+    {{- include "scale-sentry.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [pods/log]
+  verbs: [get]
+- apiGroups: [apps]
+  resources: [deployments]
+  verbs: [get, list, watch]
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [create, delete, get, list, watch]
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: [validation.scale-sentry.ek.co]
+  resources: [scalevalidations]
+  verbs: [create, get, list, patch, update, watch]
+- apiGroups: [validation.scale-sentry.ek.co]
+  resources: [scalevalidations/finalizers]
+  verbs: [update]
+- apiGroups: [validation.scale-sentry.ek.co]
+  resources: [scalevalidations/status]
+  verbs: [get, patch, update]
+{{- end -}}

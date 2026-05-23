@@ -1,0 +1,19 @@
+# Basic ServiceDefault run against the podinfo target. Loadgen hits the
+# Service at "/" — the simplest possible validation.
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: podinfo-default
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  sla: 90s
+  target:
+    mode: ServiceDefault
+    port: 9898
+    networkPath: ClusterIP
+  load:
+    baseRps: 100
+    concurrencyFactor: 10

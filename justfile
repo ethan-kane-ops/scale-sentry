@@ -1,6 +1,12 @@
 # Version pins — keep in sync with go.mod
 controller_gen_version := "v0.16.5"
 
+# Container image tag for local builds (dev workflow + E2E)
+image_tag := "dev"
+
+# Kind cluster name used by test-e2e
+kind_cluster := "scale-sentry-e2e"
+
 default:
     @just --list
 
@@ -46,10 +52,10 @@ test-integration: tools
     export KUBEBUILDER_ASSETS="$(setup-envtest use -p path)"
     go test -tags envtest ./internal/controller/...
 
-# Run linters (envtest build tag included so the integration suite is checked)
+# Run linters (envtest + e2e tags included so those suites are checked)
 lint:
-    go vet -tags envtest ./...
-    golangci-lint run --build-tags envtest
+    go vet -tags envtest,e2e ./...
+    golangci-lint run --build-tags envtest,e2e
 
 # Tidy go modules
 tidy:
@@ -61,6 +67,85 @@ check: tidy lint test
 # Remove build artifacts
 clean:
     rm -rf bin/
+
+# Build all three container images (controller, loadgen, observer) tagged :{{image_tag}}
+docker-build:
+    docker build --build-arg CMD=scale-sentry -t scale-sentry:{{image_tag}} .
+    docker build --build-arg CMD=loadgen      -t scale-sentry-loadgen:{{image_tag}} .
+    docker build --build-arg CMD=observer     -t scale-sentry-observer:{{image_tag}} .
+
+# Package the Helm chart into ./dist/scale-sentry-*.tgz
+helm-package:
+    mkdir -p dist
+    helm package charts/scale-sentry --destination dist
+
+# Helm upgrade-install the chart against the current kubeconfig context
+deploy:
+    helm upgrade --install scale-sentry charts/scale-sentry \
+        --set controller.image.tag={{image_tag}} \
+        --set loadgenImage=scale-sentry-loadgen:{{image_tag}} \
+        --set observerImage=scale-sentry-observer:{{image_tag}}
+
+# Helm uninstall the chart from the current kubeconfig context
+undeploy:
+    helm uninstall scale-sentry || true
+
+# Create a Kind cluster named {{kind_cluster}} (no-op if it already exists)
+kind-create:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if kind get clusters | grep -qx "{{kind_cluster}}"; then
+      echo "✓ kind cluster {{kind_cluster}} already exists"
+    else
+      kind create cluster --name "{{kind_cluster}}"
+    fi
+
+# Delete the Kind cluster
+kind-delete:
+    kind delete cluster --name {{kind_cluster}} || true
+
+# Load locally-built images into Kind
+kind-load: docker-build
+    kind load docker-image --name {{kind_cluster}} \
+        scale-sentry:{{image_tag}} \
+        scale-sentry-loadgen:{{image_tag}} \
+        scale-sentry-observer:{{image_tag}}
+
+# Smoke E2E: build images, load into Kind, install chart, run the e2e suite
+test-e2e: kind-create kind-load deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The chart needs a moment to roll the controller pod out before tests
+    # start asserting against it.
+    kubectl wait --for=condition=Available --timeout=120s \
+        -n default deployment/scale-sentry-controller
+    go test -tags e2e -timeout=10m ./test/e2e/...
+
+# Spin up a dev cluster with the chart installed; no tests run, cluster stays up
+dev-up: kind-create kind-load deploy
+    @echo "✓ cluster up. apply a sample:  kubectl apply -f config/samples/targets/podinfo.yaml -f config/samples/scalevalidation-servicedefault.yaml"
+
+# Tear down the dev cluster
+dev-down: undeploy kind-delete
+
+# Verify the chart's manager ClusterRole rules match config/rbac/role.yaml.
+# The chart hand-templates RBAC so it can release-name-prefix the ClusterRole;
+# this recipe is the drift gate that keeps it honest with the kubebuilder
+# markers (CRDs + observer RBAC are symlinked, so they cannot drift at all).
+chart-rbac-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    chart_rules=$(helm template scale-sentry charts/scale-sentry \
+        --show-only templates/clusterrole.yaml 2>/dev/null | yq -o json '.rules')
+    config_rules=$(yq -o json '.rules' config/rbac/role.yaml)
+    if ! diff <(echo "$chart_rules") <(echo "$config_rules") >/dev/null; then
+        echo "✗ chart manager RBAC has drifted from config/rbac/role.yaml"
+        echo "  Run 'just manifests' then sync the rules block in"
+        echo "  charts/scale-sentry/templates/clusterrole.yaml."
+        diff <(echo "$chart_rules") <(echo "$config_rules") || true
+        exit 1
+    fi
+    echo "✓ chart manager RBAC matches config/rbac/role.yaml"
 
 # Install binaries via `go install` and reshim so mise exposes them immediately
 install:

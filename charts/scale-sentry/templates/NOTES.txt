@@ -1,0 +1,20 @@
+scale-sentry {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Next steps:
+
+1. Verify the controller is ready:
+     kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "scale-sentry.fullname" . }}-controller
+
+2. Apply a sample ScaleValidation:
+     kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/samples/scale-sentry_v1alpha1_scalevalidation.yaml
+
+3. Watch the run:
+     kubectl get scalevalidations -A -w
+
+   When the run finishes, the diagnostic dashboard:
+     kubectl get scalevalidation <name> -o json \
+       | jq '.status.diagnostics' \
+       | scale-sentry report --plain
+
+Note: ScaleValidations in namespaces other than "{{ .Release.Namespace }}" need
+the observer Role + RoleBinding (ServiceAccount "{{ .Values.observerServiceAccount }}") applied there too.
