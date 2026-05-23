@@ -11,13 +11,24 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// limiterStripes is the number of independent rate.Limiter instances the
+// generator allocates. Workers round-robin across the stripes, splitting
+// the global TargetRPS budget evenly. A single shared limiter has its
+// internal mutex contended on every Wait() call — at high RPS with
+// hundreds of workers this contention dominates the run and starves the
+// HTTP path of CPU, throttling actual throughput well below TargetRPS.
+// Eight stripes is the smallest power-of-two that drops contention by
+// roughly an order of magnitude while keeping per-stripe burst behaviour
+// close to the original single-limiter shape.
+const limiterStripes = 8
+
 // Generator drives a single concurrent prober run. One Generator runs
 // exactly one URL with one ConnectionMode — re-use across runs is not
 // supported.
 type Generator struct {
-	cfg     Config
-	client  *fasthttp.Client
-	limiter *rate.Limiter
+	cfg      Config
+	client   *fasthttp.Client
+	limiters []*rate.Limiter
 }
 
 // New constructs a Generator. Validates cfg and returns any error encountered.
@@ -26,15 +37,43 @@ func New(cfg Config) (*Generator, error) {
 		return nil, err
 	}
 	cfg = cfg.withDefaults()
-	burst := cfg.TargetRPS / 10
-	if burst < 1 {
-		burst = 1
-	}
 	return &Generator{
-		cfg:     cfg,
-		client:  newClient(cfg.ConnectionMode, cfg.Timeout),
-		limiter: rate.NewLimiter(rate.Limit(cfg.TargetRPS), burst),
+		cfg:      cfg,
+		client:   newClient(cfg.ConnectionMode, cfg.Timeout),
+		limiters: buildLimiters(cfg.TargetRPS, limiterStripes),
 	}, nil
+}
+
+// buildLimiters allocates `stripes` independent rate.Limiter instances
+// whose summed rate equals targetRPS and whose summed burst equals the
+// original single-limiter burst (targetRPS/10, floor 1). When targetRPS
+// is smaller than the requested stripe count the limiter array collapses
+// to targetRPS limiters of 1 RPS each, since fewer-than-1-RPS stripes
+// have no token-refill cadence at all.
+func buildLimiters(targetRPS, stripes int) []*rate.Limiter {
+	if stripes < 1 {
+		stripes = 1
+	}
+	if stripes > targetRPS {
+		stripes = targetRPS
+	}
+	if stripes < 1 {
+		stripes = 1
+	}
+	perStripeRate := rate.Limit(float64(targetRPS) / float64(stripes))
+	totalBurst := targetRPS / 10
+	if totalBurst < 1 {
+		totalBurst = 1
+	}
+	perStripeBurst := totalBurst / stripes
+	if perStripeBurst < 1 {
+		perStripeBurst = 1
+	}
+	limiters := make([]*rate.Limiter, stripes)
+	for i := range limiters {
+		limiters[i] = rate.NewLimiter(perStripeRate, perStripeBurst)
+	}
+	return limiters
 }
 
 // Run executes the prober loop until cfg.Duration elapses or ctx is cancelled.
@@ -49,7 +88,9 @@ func (g *Generator) Run(ctx context.Context) Result {
 	var wg sync.WaitGroup
 	for i := 0; i < g.cfg.Concurrency; i++ {
 		wg.Add(1)
-		go g.worker(runCtx, &wg, collector)
+		// Round-robin workers across the stripes. The modulo ensures
+		// every stripe is exercised even when Concurrency < stripes.
+		go g.worker(runCtx, &wg, collector, g.limiters[i%len(g.limiters)])
 	}
 	wg.Wait()
 
@@ -57,10 +98,10 @@ func (g *Generator) Run(ctx context.Context) Result {
 	return collector.finalize(g.cfg)
 }
 
-func (g *Generator) worker(ctx context.Context, wg *sync.WaitGroup, c *collector) {
+func (g *Generator) worker(ctx context.Context, wg *sync.WaitGroup, c *collector, limiter *rate.Limiter) {
 	defer wg.Done()
 	for {
-		if err := g.limiter.Wait(ctx); err != nil {
+		if err := limiter.Wait(ctx); err != nil {
 			return // ctx done
 		}
 		g.do(ctx, c)

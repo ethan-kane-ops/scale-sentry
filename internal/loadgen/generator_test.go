@@ -190,6 +190,61 @@ func TestGeneratorRun_ShortLivedConnectionMode(t *testing.T) {
 	}
 }
 
+func TestBuildLimiters(t *testing.T) {
+	tests := []struct {
+		name            string
+		targetRPS       int
+		stripes         int
+		wantCount       int
+		wantTotalRate   float64
+		wantPerBurstMin int
+	}{
+		{
+			name:            "default stripe count",
+			targetRPS:       1000,
+			stripes:         8,
+			wantCount:       8,
+			wantTotalRate:   1000,
+			wantPerBurstMin: 1,
+		},
+		{
+			name:            "collapse stripes when targetRPS smaller",
+			targetRPS:       3,
+			stripes:         8,
+			wantCount:       3,
+			wantTotalRate:   3,
+			wantPerBurstMin: 1,
+		},
+		{
+			name:            "single stripe when stripes <= 0",
+			targetRPS:       100,
+			stripes:         0,
+			wantCount:       1,
+			wantTotalRate:   100,
+			wantPerBurstMin: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ls := buildLimiters(tt.targetRPS, tt.stripes)
+			if len(ls) != tt.wantCount {
+				t.Fatalf("len = %d, want %d", len(ls), tt.wantCount)
+			}
+			var total float64
+			for _, l := range ls {
+				total += float64(l.Limit())
+				if l.Burst() < tt.wantPerBurstMin {
+					t.Errorf("per-stripe burst = %d, want >= %d", l.Burst(), tt.wantPerBurstMin)
+				}
+			}
+			// Float division: allow tiny rounding slack.
+			if diff := total - tt.wantTotalRate; diff > 0.001 || diff < -0.001 {
+				t.Errorf("summed rate = %v, want %v", total, tt.wantTotalRate)
+			}
+		})
+	}
+}
+
 func TestPercentilesEmpty(t *testing.T) {
 	p50, p95, p99, max := percentiles(nil)
 	if p50 != 0 || p95 != 0 || p99 != 0 || max != 0 {
