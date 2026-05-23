@@ -60,4 +60,3 @@ func (r Result) FailureRate() float64 {
 	}
 	return float64(r.Failed) / float64(r.Sent)
 }
-

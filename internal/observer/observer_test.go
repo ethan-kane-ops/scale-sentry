@@ -216,6 +216,61 @@ func TestPickColdStartPod(t *testing.T) {
 	}
 }
 
+func TestReport_AppendsMetricsLikelySkewedWhenCorrelationFires(t *testing.T) {
+	start := time.Now()
+	s := &Session{
+		events: []leakage.EndpointEvent{
+			{At: start, PodIP: "10.0.0.1", Kind: leakage.EndpointReady},
+		},
+	}
+	load := loadResult{
+		ok: true,
+		result: &loadgen.Result{
+			Sent: 100, Failed: 1,
+			ErrorSamples: []loadgen.ErrorSample{
+				// 100ms after the Ready event => inside the default 2s
+				// leakage window => fires a ColdStartLeakage alert,
+				// which is what gates the skew advisory.
+				{At: start.Add(100 * time.Millisecond), Category: loadgen.ErrServer, Status: 503},
+			},
+		},
+	}
+
+	rep := s.report(nil, nil, load)
+
+	var sawLeakage, sawSkew bool
+	for _, d := range rep.Diagnostics {
+		switch d.Type {
+		case "ColdStartLeakage":
+			sawLeakage = true
+		case "MetricsLikelySkewed":
+			sawSkew = true
+			if d.Severity != "Info" {
+				t.Errorf("MetricsLikelySkewed severity = %q, want Info", d.Severity)
+			}
+		}
+	}
+	if !sawLeakage {
+		t.Fatalf("expected ColdStartLeakage to fire (sample inside leakage window); got %+v", rep.Diagnostics)
+	}
+	if !sawSkew {
+		t.Errorf("MetricsLikelySkewed advisory missing; got %+v", rep.Diagnostics)
+	}
+}
+
+func TestReport_NoSkewAdvisoryWithoutCorrelationFinding(t *testing.T) {
+	// Clean run, no errors -> leakage/drain emit nothing -> no skew
+	// advisory either (would otherwise be noise on every Pass verdict).
+	s := &Session{}
+	load := loadResult{ok: true, result: &loadgen.Result{Sent: 100, Failed: 0}}
+	rep := s.report(nil, nil, load)
+	for _, d := range rep.Diagnostics {
+		if d.Type == "MetricsLikelySkewed" {
+			t.Errorf("MetricsLikelySkewed fired on clean run: %+v", d)
+		}
+	}
+}
+
 func TestParseReportLog(t *testing.T) {
 	rep := Report{SLAStatus: VerdictPass, TrafficIntegrity: VerdictFail, TotalRequests: 500}
 	line, err := MarshalReportLine(rep)

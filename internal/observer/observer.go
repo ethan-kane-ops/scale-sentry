@@ -206,8 +206,24 @@ func (s *Session) report(hpaReport *hpa.Report, obs *observed, load loadResult) 
 		rep.TrafficIntegrity = trafficVerdict(load.result)
 
 		errs := toLeakageSamples(load.result.ErrorSamples)
-		diags = append(diags, leakage.Correlate(events, errs, 0).Diagnostics()...)
-		diags = append(diags, drain.Correlate(events, errs, 0).Diagnostics()...)
+		correlationDiags := leakage.Correlate(events, errs, 0).Diagnostics()
+		correlationDiags = append(correlationDiags, drain.Correlate(events, errs, 0).Diagnostics()...)
+		if len(correlationDiags) > 0 {
+			// Endpoint event timestamps come from the informer's local
+			// receive time, not from the kubelet/apiserver decision time
+			// — so they trail reality by anywhere from a few ms (warm
+			// watch) to several hundred (cold watch / busy apiserver).
+			// Flag whenever a correlation analyzer fires so the operator
+			// reads the leakage / drain counts as an approximation
+			// instead of a precise audit.
+			correlationDiags = append(correlationDiags, v1alpha1.DiagnosticAlert{
+				Type:           "MetricsLikelySkewed",
+				Severity:       "Info",
+				Message:        "endpoint event timestamps reflect informer-watch receive time, not kubelet/apiserver decision time; leakage and drain counts can be off by tens to hundreds of milliseconds",
+				Recommendation: "treat the leakage / drain counts as directional; cross-check with kubelet logs or audit events when the failure count looks borderline",
+			})
+		}
+		diags = append(diags, correlationDiags...)
 	}
 
 	rep.Diagnostics = diags
