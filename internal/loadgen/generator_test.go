@@ -245,29 +245,53 @@ func TestBuildLimiters(t *testing.T) {
 	}
 }
 
-func TestPercentilesEmpty(t *testing.T) {
-	p50, p95, p99, max := percentiles(nil)
-	if p50 != 0 || p95 != 0 || p99 != 0 || max != 0 {
-		t.Errorf("percentiles(nil) = (%v, %v, %v, %v), want all zero", p50, p95, p99, max)
+func TestCollectorLatencyHistogram(t *testing.T) {
+	c := newCollector()
+	c.start = time.Now()
+	// 100 samples uniformly spread from 1ms to 100ms.
+	for i := 1; i <= 100; i++ {
+		c.recordStatus(200, time.Duration(i)*time.Millisecond, c.start)
+	}
+	c.end = c.start.Add(time.Second)
+	r := c.finalize(Config{ConnectionMode: KeepAlive})
+
+	// HDR is approximate; allow a few-ms slack at each percentile.
+	within := func(name string, got, want, slack time.Duration) {
+		t.Helper()
+		diff := got - want
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > slack {
+			t.Errorf("%s = %v, want ~%v (±%v)", name, got, want, slack)
+		}
+	}
+	within("p50", r.LatencyP50, 50*time.Millisecond, 2*time.Millisecond)
+	within("p95", r.LatencyP95, 95*time.Millisecond, 2*time.Millisecond)
+	within("p99", r.LatencyP99, 99*time.Millisecond, 2*time.Millisecond)
+	within("max", r.LatencyMax, 100*time.Millisecond, 2*time.Millisecond)
+}
+
+func TestCollectorLatencyEmpty(t *testing.T) {
+	c := newCollector()
+	c.start = time.Now()
+	c.end = c.start
+	r := c.finalize(Config{ConnectionMode: KeepAlive})
+	if r.LatencyP50 != 0 || r.LatencyP95 != 0 || r.LatencyP99 != 0 || r.LatencyMax != 0 {
+		t.Errorf("empty run percentiles = (%v, %v, %v, %v), want all zero",
+			r.LatencyP50, r.LatencyP95, r.LatencyP99, r.LatencyMax)
 	}
 }
 
-func TestPercentilesOrdered(t *testing.T) {
-	samples := make([]time.Duration, 100)
-	for i := range samples {
-		samples[i] = time.Duration(i+1) * time.Millisecond
-	}
-	p50, p95, p99, max := percentiles(samples)
-	if p50 != 50*time.Millisecond {
-		t.Errorf("p50 = %v, want 50ms", p50)
-	}
-	if p95 != 95*time.Millisecond {
-		t.Errorf("p95 = %v, want 95ms", p95)
-	}
-	if p99 != 99*time.Millisecond {
-		t.Errorf("p99 = %v, want 99ms", p99)
-	}
-	if max != 100*time.Millisecond {
-		t.Errorf("max = %v, want 100ms", max)
+func TestCollectorLatencyClamp(t *testing.T) {
+	// Values above the histogram max (60s) clamp to max rather than
+	// vanishing — a 90s timeout must still show up at the tail.
+	c := newCollector()
+	c.start = time.Now()
+	c.recordError(ErrTimeout, 90*time.Second, c.start)
+	c.end = c.start.Add(time.Second)
+	r := c.finalize(Config{ConnectionMode: KeepAlive})
+	if r.LatencyMax < 59*time.Second || r.LatencyMax > 61*time.Second {
+		t.Errorf("max = %v, want clamp to ~60s", r.LatencyMax)
 	}
 }
