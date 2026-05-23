@@ -7,8 +7,20 @@ import (
 	"sync"
 	"time"
 
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/valyala/fasthttp"
 	"golang.org/x/time/rate"
+)
+
+// Latency histogram bounds. 1µs..60s with 3 significant figures matches
+// the operational range scale-sentry runs in (sub-ms hot paths through to
+// timeouts) and keeps the per-histogram footprint to a few KB — orders of
+// magnitude smaller than an unbounded []time.Duration that grew to 50M+
+// entries on long high-RPS runs and dominated the Job pod's memory.
+const (
+	latencyHistogramMin    = int64(time.Microsecond / time.Nanosecond)
+	latencyHistogramMax    = int64(60 * time.Second / time.Nanosecond)
+	latencyHistogramSigFig = 3
 )
 
 // limiterStripes is the number of independent rate.Limiter instances the
@@ -174,7 +186,10 @@ type collector struct {
 
 	statusCounts map[int]int64
 	errors       map[ErrorCategory]int64
-	latencies    []time.Duration
+	// latencies is an HDR Histogram with fixed (few-KB) footprint, so a
+	// long high-RPS run cannot drive the Job pod into OOM by accumulating
+	// per-request time.Duration entries in an unbounded slice.
+	latencies    *hdrhistogram.Histogram
 	errorSamples []ErrorSample
 }
 
@@ -182,7 +197,7 @@ func newCollector() *collector {
 	return &collector{
 		statusCounts: make(map[int]int64),
 		errors:       make(map[ErrorCategory]int64),
-		latencies:    make([]time.Duration, 0, 1024),
+		latencies:    hdrhistogram.New(latencyHistogramMin, latencyHistogramMax, latencyHistogramSigFig),
 	}
 }
 
@@ -191,7 +206,7 @@ func (c *collector) recordStatus(code int, latency time.Duration, at time.Time) 
 	defer c.mu.Unlock()
 	c.sent++
 	c.statusCounts[code]++
-	c.latencies = append(c.latencies, latency)
+	c.recordLatency(latency)
 	switch {
 	case code >= 500:
 		c.errors[ErrServer]++
@@ -212,8 +227,24 @@ func (c *collector) recordError(cat ErrorCategory, latency time.Duration, at tim
 	c.sent++
 	c.failed++
 	c.errors[cat]++
-	c.latencies = append(c.latencies, latency)
+	c.recordLatency(latency)
 	c.addSample(cat, 0, at)
+}
+
+// recordLatency clamps the value into the histogram range and records it.
+// The caller must hold c.mu. Out-of-range values (which would otherwise
+// drop silently with an error) are clipped so the percentile tails stay
+// honest — a 90s timeout shows up as latencyHistogramMax rather than
+// vanishing from the distribution entirely.
+func (c *collector) recordLatency(latency time.Duration) {
+	v := int64(latency)
+	if v < latencyHistogramMin {
+		v = latencyHistogramMin
+	}
+	if v > latencyHistogramMax {
+		v = latencyHistogramMax
+	}
+	_ = c.latencies.RecordValue(v)
 }
 
 // addSample appends a failure sample. The caller must hold c.mu. Samples
@@ -228,7 +259,15 @@ func (c *collector) addSample(cat ErrorCategory, status int, at time.Time) {
 func (c *collector) finalize(cfg Config) Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	p50, p95, p99, max := percentiles(c.latencies)
+	p50 := time.Duration(c.latencies.ValueAtQuantile(50))
+	p95 := time.Duration(c.latencies.ValueAtQuantile(95))
+	p99 := time.Duration(c.latencies.ValueAtQuantile(99))
+	max := time.Duration(c.latencies.Max())
+	if c.latencies.TotalCount() == 0 {
+		// hdrhistogram's Max() returns its internal minimum sentinel on
+		// an empty histogram; force zeros so the JSON Result is honest.
+		p50, p95, p99, max = 0, 0, 0, 0
+	}
 	labels := map[string]string{
 		"connectionMode": string(cfg.ConnectionMode),
 	}

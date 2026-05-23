@@ -1,7 +1,6 @@
 package loadgen
 
 import (
-	"sort"
 	"time"
 )
 
@@ -62,17 +61,3 @@ func (r Result) FailureRate() float64 {
 	return float64(r.Failed) / float64(r.Sent)
 }
 
-// percentiles computes p50/p95/p99/max from a slice of latencies.
-// The slice is sorted in place. Returns zero values when samples is empty.
-func percentiles(samples []time.Duration) (p50, p95, p99, max time.Duration) {
-	if len(samples) == 0 {
-		return 0, 0, 0, 0
-	}
-	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
-	pick := func(q float64) time.Duration {
-		// nearest-rank percentile
-		idx := int(float64(len(samples)-1) * q)
-		return samples[idx]
-	}
-	return pick(0.50), pick(0.95), pick(0.99), samples[len(samples)-1]
-}
