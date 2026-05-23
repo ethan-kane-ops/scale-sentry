@@ -39,10 +39,17 @@ test:
 test-race:
     go test -race ./...
 
-# Run linters
+# Run the envtest integration suite (downloads apiserver/etcd assets on first run)
+test-integration: tools
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KUBEBUILDER_ASSETS="$(setup-envtest use -p path)"
+    go test -tags envtest ./internal/controller/...
+
+# Run linters (envtest build tag included so the integration suite is checked)
 lint:
-    go vet ./...
-    golangci-lint run
+    go vet -tags envtest ./...
+    golangci-lint run --build-tags envtest
 
 # Tidy go modules
 tidy:

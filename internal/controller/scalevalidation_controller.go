@@ -56,6 +56,10 @@ type ScaleValidationReconciler struct {
 	// ObserverServiceAccount is the ServiceAccount the Job pod runs as,
 	// granting the observer its read + pods/exec permissions.
 	ObserverServiceAccount string
+	// observerLogFn overrides the observer-log read. Production leaves it
+	// nil — the Clientset pods/log path is used. The integration suite
+	// injects a stub because envtest runs no kubelet to serve logs.
+	observerLogFn func(context.Context, *corev1.Pod) ([]byte, error)
 }
 
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations,verbs=get;list;watch;create;update;patch
@@ -130,7 +134,11 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	raw, err := r.observerLog(ctx, pod)
+	readLog := r.observerLog
+	if r.observerLogFn != nil {
+		readLog = r.observerLogFn
+	}
+	raw, err := readLog(ctx, pod)
 	if err != nil {
 		log.Error(err, "read observer log")
 		return r.setPhase(ctx, cr, PhaseError)
