@@ -153,16 +153,66 @@ func TestToLeakageSamples(t *testing.T) {
 	}
 }
 
-func TestNewestPod(t *testing.T) {
-	mk := func(name string, ageMin int) corev1.Pod {
+func TestPickColdStartPod(t *testing.T) {
+	now := time.Now()
+	mk := func(name string, offset time.Duration) corev1.Pod {
 		return corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 			Name:              name,
-			CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Duration(ageMin) * time.Minute)),
+			CreationTimestamp: metav1.NewTime(now.Add(offset)),
 		}}
 	}
-	pods := []corev1.Pod{mk("old", 30), mk("newest", 1), mk("mid", 10)}
-	if got := newestPod(pods); got.Name != "newest" {
-		t.Errorf("newestPod = %s, want newest", got.Name)
+
+	runStart := now
+
+	tests := []struct {
+		name     string
+		pods     []corev1.Pod
+		want     string // empty means nil
+	}{
+		{
+			name: "no pods at all",
+			pods: nil,
+			want: "",
+		},
+		{
+			name: "all pods pre-date the run",
+			pods: []corev1.Pod{mk("pre1", -10*time.Minute), mk("pre2", -1*time.Minute)},
+			want: "",
+		},
+		{
+			name: "pod exactly at runStart is not a cold-start",
+			pods: []corev1.Pod{mk("boundary", 0)},
+			want: "",
+		},
+		{
+			name: "one scale-up pod after runStart",
+			pods: []corev1.Pod{mk("old", -5*time.Minute), mk("new", 30*time.Second)},
+			want: "new",
+		},
+		{
+			name: "newest scale-up pod wins",
+			pods: []corev1.Pod{
+				mk("old", -5*time.Minute),
+				mk("first-scaleup", 10*time.Second),
+				mk("second-scaleup", 40*time.Second),
+				mk("third-scaleup", 20*time.Second),
+			},
+			want: "second-scaleup",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pickColdStartPod(tt.pods, runStart)
+			if tt.want == "" {
+				if got != nil {
+					t.Errorf("pickColdStartPod = %s, want nil", got.Name)
+				}
+				return
+			}
+			if got == nil || got.Name != tt.want {
+				t.Errorf("pickColdStartPod = %v, want %s", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -150,7 +150,7 @@ func (s *Session) Run(ctx context.Context) Report {
 		cgReport = &r
 	}
 
-	probeReport := s.collectProbeLag(fin, target)
+	probeReport := s.collectProbeLag(fin, target, start)
 
 	var hpaReport *hpa.Report
 	if watcher != nil {
