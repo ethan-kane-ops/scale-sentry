@@ -20,17 +20,19 @@ import (
 )
 
 type opts struct {
-	url            string
-	method         string
-	headers        []string
-	rps            int
-	duration       time.Duration
-	concurrency    int
-	connectionMode string
-	timeout        time.Duration
-	targetMode     string
-	networkPath    string
-	resultFile     string
+	url               string
+	method            string
+	headers           []string
+	rps               int
+	duration          time.Duration
+	concurrency       int
+	connectionMode    string
+	timeout           time.Duration
+	targetMode        string
+	networkPath       string
+	resultFile        string
+	tlsInsecure       bool
+	tlsCABundle       string
 }
 
 func main() {
@@ -55,6 +57,8 @@ func main() {
 	f.StringVar(&o.targetMode, "target-mode", "", "informational label: ServiceDefault | AutoDiscoverProbe | CustomPath")
 	f.StringVar(&o.networkPath, "network-path", "", "informational label: ClusterIP | Ingress")
 	f.StringVar(&o.resultFile, "result-file", "", "also write the JSON Result to this path (for the observer sidecar)")
+	f.BoolVar(&o.tlsInsecure, "tls-insecure-skip-verify", false, "disable TLS certificate verification (dev / CI only — masks TLS failures)")
+	f.StringVar(&o.tlsCABundle, "tls-ca-bundle", "", "path to a PEM-encoded CA bundle to trust (for private ingress CAs)")
 
 	_ = cmd.MarkFlagRequired("url")
 	_ = cmd.MarkFlagRequired("rps")
@@ -77,16 +81,18 @@ func run(ctx context.Context, o opts) error {
 	}
 
 	cfg := loadgen.Config{
-		URL:            o.url,
-		Method:         o.method,
-		Headers:        headers,
-		TargetRPS:      o.rps,
-		Duration:       o.duration,
-		Concurrency:    o.concurrency,
-		ConnectionMode: loadgen.ConnectionMode(o.connectionMode),
-		Timeout:        o.timeout,
-		TargetMode:     loadgen.TargetMode(o.targetMode),
-		NetworkPath:    loadgen.NetworkPath(o.networkPath),
+		URL:                   o.url,
+		Method:                o.method,
+		Headers:               headers,
+		TargetRPS:             o.rps,
+		Duration:              o.duration,
+		Concurrency:           o.concurrency,
+		ConnectionMode:        loadgen.ConnectionMode(o.connectionMode),
+		Timeout:               o.timeout,
+		TargetMode:            loadgen.TargetMode(o.targetMode),
+		NetworkPath:           loadgen.NetworkPath(o.networkPath),
+		TLSInsecureSkipVerify: o.tlsInsecure,
+		TLSCABundlePath:       o.tlsCABundle,
 	}
 
 	g, err := loadgen.New(cfg)

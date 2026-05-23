@@ -3,6 +3,7 @@ package loadgen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -49,9 +50,13 @@ func New(cfg Config) (*Generator, error) {
 		return nil, err
 	}
 	cfg = cfg.withDefaults()
+	client, err := newClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build client: %w", err)
+	}
 	return &Generator{
 		cfg:      cfg,
-		client:   newClient(cfg.ConnectionMode, cfg.Timeout),
+		client:   client,
 		limiters: buildLimiters(cfg.TargetRPS, limiterStripes),
 	}, nil
 }

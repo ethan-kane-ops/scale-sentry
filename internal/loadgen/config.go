@@ -69,6 +69,18 @@ type Config struct {
 	// TargetMode and NetworkPath are informational labels copied into [Result.Labels].
 	TargetMode  TargetMode
 	NetworkPath NetworkPath
+
+	// TLSInsecureSkipVerify disables TLS certificate validation. Intended
+	// for ingresses fronted by self-signed certs in dev / CI clusters; it
+	// must never be set against production endpoints because the failure
+	// signal scale-sentry watches for (TLS errors) is silently masked.
+	TLSInsecureSkipVerify bool
+
+	// TLSCABundlePath is the path to a PEM-encoded CA bundle the loadgen
+	// adds to the client's RootCAs. Empty falls back to the system trust
+	// store. Used for private CAs that issue ingress certs, so the
+	// loadgen can validate them without InsecureSkipVerify.
+	TLSCABundlePath string
 }
 
 // Validate returns an error if cfg is missing required fields or holds
