@@ -6,8 +6,9 @@ fullnameOverride: ""
 controller:
   replicaCount: 1
   image:
-    repository: scale-sentry
-    tag: latest
+    repository: ghcr.io/ethan-kane-ops/scale-sentry
+    # Empty tag falls back to .Chart.AppVersion so releases only bump Chart.yaml.
+    tag: ""
     pullPolicy: IfNotPresent
   # No CPU limits by design — let the kernel scheduler arbitrate. Memory
   # is the only hard cap.
@@ -23,9 +24,11 @@ controller:
   leaderElect: true
   devLogging: false
 
-# Images the controller injects into the loadgen Job pod spec.
-loadgenImage: scale-sentry-loadgen:latest
-observerImage: scale-sentry-observer:latest
+# Images the controller injects into the loadgen Job pod spec. Empty means
+# "compose default GHCR path tagged at .Chart.AppVersion" in the deployment
+# template — override either field to pin a specific image.
+loadgenImage: ""
+observerImage: ""
 
 # Observer ServiceAccount name. Fixed at "scale-sentry-observer" because the
 # observer Role + RoleBinding are symlinked from config/rbac/observer_role.yaml

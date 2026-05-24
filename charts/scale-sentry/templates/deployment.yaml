@@ -20,12 +20,12 @@ spec:
       serviceAccountName: {{ include "scale-sentry.controllerServiceAccountName" . }}
       containers:
       - name: controller
-        image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+        image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
         args:
         - controller
-        - --loadgen-image={{ .Values.loadgenImage }}
-        - --observer-image={{ .Values.observerImage }}
+        - --loadgen-image={{ .Values.loadgenImage | default (printf "ghcr.io/ethan-kane-ops/scale-sentry-loadgen:%s" .Chart.AppVersion) }}
+        - --observer-image={{ .Values.observerImage | default (printf "ghcr.io/ethan-kane-ops/scale-sentry-observer:%s" .Chart.AppVersion) }}
         - --observer-service-account={{ .Values.observerServiceAccount }}
         {{- if .Values.controller.leaderElect }}
         - --leader-elect
