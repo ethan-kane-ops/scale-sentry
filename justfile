@@ -68,20 +68,28 @@ check: tidy lint test
 clean:
     rm -rf bin/
 
-# Build all three container images (controller, loadgen, observer) tagged :{{image_tag}}
+# Build all three container images (controller, loadgen, observer) tagged :{{image_tag}}.
+# DOCKER_BUILDKIT=1 is required because the Dockerfile uses $BUILDPLATFORM, a
+# BuildKit-only variable. Colima without the buildx plugin installed falls
+# back to the legacy builder otherwise, which leaves $BUILDPLATFORM empty and
+# fails platform parsing.
 docker-build:
-    docker build --build-arg CMD=scale-sentry -t scale-sentry:{{image_tag}} .
-    docker build --build-arg CMD=loadgen      -t scale-sentry-loadgen:{{image_tag}} .
-    docker build --build-arg CMD=observer     -t scale-sentry-observer:{{image_tag}} .
+    DOCKER_BUILDKIT=1 docker build --build-arg CMD=scale-sentry -t scale-sentry:{{image_tag}} .
+    DOCKER_BUILDKIT=1 docker build --build-arg CMD=loadgen      -t scale-sentry-loadgen:{{image_tag}} .
+    DOCKER_BUILDKIT=1 docker build --build-arg CMD=observer     -t scale-sentry-observer:{{image_tag}} .
 
 # Package the Helm chart into ./dist/scale-sentry-*.tgz
 helm-package:
     mkdir -p dist
     helm package charts/scale-sentry --destination dist
 
-# Helm upgrade-install the chart against the current kubeconfig context
+# Helm upgrade-install the chart against the current kubeconfig context.
+# Overrides controller.image.repository to the local (un-prefixed) name because
+# `just docker-build` tags images as `scale-sentry:<tag>`, while the chart's
+# default repository is `ghcr.io/ethan-kane-ops/scale-sentry` for releases.
 deploy:
     helm upgrade --install scale-sentry charts/scale-sentry \
+        --set controller.image.repository=scale-sentry \
         --set controller.image.tag={{image_tag}} \
         --set loadgenImage=scale-sentry-loadgen:{{image_tag}} \
         --set observerImage=scale-sentry-observer:{{image_tag}}
