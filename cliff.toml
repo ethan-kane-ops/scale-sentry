@@ -43,7 +43,22 @@ tag_pattern            = "v[0-9].*"
 ignore_tags            = "rc|alpha|beta"
 sort_commits           = "newest"
 
+# Normalize commit subjects before grouping/rendering. Squash-merged PRs
+# carry the original PR description as the commit body, and some early
+# squash merges have leading whitespace on the subject line that breaks
+# the conventional commit parser. Without these preprocessors the body
+# leaks into entries and `  feat(scope):` falls through to raw text.
+commit_preprocessors = [
+  # Drop everything after the first newline (subject only).
+  { pattern = '\n[\s\S]*', replace = '' },
+  # Strip leading whitespace so `^feat:` parsers match.
+  { pattern = '^\s+',      replace = '' },
+  # Trim trailing whitespace.
+  { pattern = '\s+$',      replace = '' },
+]
+
 commit_parsers = [
+  { message = "^feat: initial commit", skip = true },
   { message = "^feat",     group = "<!-- 0 -->Features" },
   { message = "^fix",      group = "<!-- 1 -->Bug Fixes" },
   { message = "^perf",     group = "<!-- 2 -->Performance" },
