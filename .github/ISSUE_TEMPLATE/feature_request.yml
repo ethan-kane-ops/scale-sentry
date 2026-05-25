@@ -1,0 +1,34 @@
+name: Feature Request
+description: Suggest an idea or new system analyzer for scale-sentry
+title: "[FEAT]: <title>"
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the use case, proposed solution, and any alternatives you have considered.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear and concise description of what the problem is.
+      placeholder: e.g. I want to analyze custom Prometheus metrics besides HPA status ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the proposed solution
+      description: A detailed description of what you want to happen and how it should work.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you have considered
+      description: A clear and concise description of any alternative solutions or workarounds you've considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, diagrams, or links here.

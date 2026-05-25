@@ -173,7 +173,7 @@ release-preview bump="auto":
     @echo "── changelog preview ──"
     @git cliff --bump {{bump}} --unreleased
 
-# Cut a release: bump (auto/patch/minor/major) or explicit vX.Y.Z. Generates CHANGELOG.md, tags, pushes, gh release.
+# Bumps Chart.yaml (version + appVersion), generates CHANGELOG, tags, pushes, creates GH release. Args: auto|patch|minor|major|vX.Y.Z.
 release bump="auto":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -185,10 +185,12 @@ release bump="auto":
     esac
     case "$new_ver" in v*) ;; *) new_ver="v$new_ver" ;; esac
     if git rev-parse "$new_ver" >/dev/null 2>&1; then echo "✗ tag $new_ver already exists"; exit 1; fi
+    chart_ver="${new_ver#v}"
     just check
-    echo "▶ releasing $new_ver"
+    echo "▶ releasing $new_ver (chart + appVersion → $chart_ver)"
+    yq -i ".version = \"$chart_ver\" | .appVersion = \"$chart_ver\"" charts/scale-sentry/Chart.yaml
     git cliff --tag "$new_ver" -o CHANGELOG.md
-    git add CHANGELOG.md
+    git add CHANGELOG.md charts/scale-sentry/Chart.yaml
     git diff --cached --quiet || git commit -m "chore(release): $new_ver"
     git tag -a "$new_ver" -m "Release $new_ver"
     git push

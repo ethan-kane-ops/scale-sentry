@@ -1,79 +1,73 @@
-# Scale Sentry 🛡️
+# Scale Sentry
 
+[![CI](https://github.com/ethan-kane-ops/scale-sentry/actions/workflows/ci.yml/badge.svg)](https://github.com/ethan-kane-ops/scale-sentry/actions/workflows/ci.yml)
+[![Release](https://github.com/ethan-kane-ops/scale-sentry/actions/workflows/release.yml/badge.svg)](https://github.com/ethan-kane-ops/scale-sentry/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ethan-kane-ops/scale-sentry)](https://goreportcard.com/report/github.com/ethan-kane-ops/scale-sentry)
-[![Kubernetes Compatible](https://img.shields.io/badge/Kubernetes-%E2%89%A5%201.26-blue.svg)](https://kubernetes.io)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ethan-kane-ops/scale-sentry.svg)](https://pkg.go.dev/github.com/ethan-kane-ops/scale-sentry)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-%E2%89%A5%201.26-blue.svg)](https://kubernetes.io)
 
-**Scale Sentry** is an open-source, highly-differentiated Kubernetes custom controller and validation engine built to actively load-test and validate application auto-scaling behavior and traffic resilience under sudden load spikes.
+**Scale Sentry** validates Kubernetes auto-scaling behavior under load. It generates dynamic traffic to a target Deployment, tracks HPA scale-up latency against an SLA, and correlates HTTP errors with EndpointSlice updates to surface **cold-start traffic leakage** — errors served the instant a new pod is declared Ready.
 
-Unlike traditional disconnected load-generation tools, Scale Sentry bridges the gap between synthetic traffic and low-level cluster state. It calculates tailored target traffic volumes dynamically based on pod resources requests, stress-tests auto-discovered readiness endpoints, tracks HorizontalPodAutoscaler (HPA) reaction latency against configurable SLAs, and correlates high-frequency HTTP request logs with Service Endpoints updates to capture and diagnose **"cold-start traffic leakage"** (HTTP errors served immediately after a new pod is declared Ready).
+It is a [kubebuilder](https://book.kubebuilder.io/) v4 controller built on `controller-runtime`. Workloads are validated declaratively through a `ScaleValidation` Custom Resource or through annotations on existing Deployments.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Cluster [Kubernetes Cluster]
-        subgraph ControlPlane [Kubernetes Control Plane]
-            APIServer[kube-apiserver API Server]
-            HPAController[HPA Controller]
-        end
+flowchart LR
+    User([Platform Engineer]) -->|kubectl apply| CR[ScaleValidation CR]
 
-        subgraph OperatorSpace [Operator Space]
-            Controller[scale-sentry-controller]
-        end
-
-        subgraph TargetSpace [Target Workload Namespace]
-            CR[ScaleValidation Custom Resource]
-            Deployment[Target Deployment]
-            AppPods[Application Pods]
-            Service[Kubernetes Service]
-            HPA[Horizontal Pod Autoscaler]
-            LoadJob[Load Generator Job]
-        end
+    subgraph Operator [scale-sentry namespace]
+        Controller[Controller]
     end
 
-    CR -->|Watched by| Controller
-    Controller -->|Queries or Watches| APIServer
-    APIServer -->|Watches events for| Service
-    APIServer -->|Watches events for| AppPods
+    CR -.watched.-> Controller
+    Controller -->|1 spawn| Loadgen[Loadgen Job]
+    Controller -->|2 spawn| Observer[Observer Job]
 
-    Controller -->|1. Resolves specifications from| Deployment
-    Controller -->|2. Spawns| LoadJob
+    subgraph Target [target namespace]
+        Service[Service]
+        Pods[Target Pods]
+        HPA[HorizontalPodAutoscaler]
+    end
 
-    LoadJob -->|3. Stress Traffic RPS| Service
-    Service -->|Routes traffic| AppPods
+    Loadgen -->|3 HTTP traffic| Service --> Pods
+    Pods -.resource usage.-> HPA
+    HPA -.scales.-> Pods
 
-    AppPods -->|Resource usage climbs| HPA
-    HPA -->|Signals scale-up| HPAController
-    HPAController -->|Increases replicas| Deployment
-    Deployment -->|Spawns new replicas| AppPods
+    Observer -.watches HPA / Endpoints / Pods.-> Target
+    Observer -.scrapes cAdvisor.-> Pods
+    Loadgen -.report.-> Volume[(shared volume)]
+    Volume -.read.-> Observer
 
-    Controller -->|4. Monitors state and latency| HPA
-    Controller -->|5. Traces endpoint plumbing| Service
-    LoadJob -->|6. Logs HTTP metrics| Controller
+    Observer -->|4 verdict report| Controller
+    Controller -->|5 status update| CR
 ```
 
----
-
-## 🌟 Core Features
-
-1. **First-Class CRD Controller:** Reconciles the `ScaleValidation` Custom Resource (`validation.scale-sentry.ek.co/v1alpha1`), storing test configurations, SLA targets, and keeping execution history directly in the resource's `status` subresource.
-2. **Dynamic Annotation-to-CRD Bridge:** Reconciles raw annotated `Deployments` (using `scale-sentry.ek.co/validate: "true"`), automatically provisioning shadow `ScaleValidation` CRDs to ensure instant, zero-config onboarding for platform teams.
-3. **Advanced Endpoint Targeting & Dual Routes:** Resolves target paths dynamically (`ServiceDefault`, `AutoDiscoverProbe` readiness paths, or explicit `CustomPath` routes). Supports testing distinct network routing paths—direct internal `ClusterIP` routing or external edge `Ingress` gateway paths—isolated to single flows per validation run.
-4. **Chaos Disruption Engine (`spec.disruption`):** Simulates spot evictions, node drains, or replica shuffling by terminating a healthy replica pod at peak stress, testing application graceful shutdown capability, `terminationGracePeriodSeconds` behavior, and EndpointSlice propagation delays.
-5. **Deep Systems-Diagnostic Suite:**
-   * **Readiness Probe Sampling Lag Analyzer:** Tracks the exact time delta between `PodRunning` (physical startup) and `PodReady` (probe success) to detect inefficient sparse sampling frequencies.
-   * **TCP Keep-Alive / Handshake Tester:** Runs persistent versus short-lived request pools to evaluate connection establishment and TLS handshake latency overhead.
-   * **cgroup CPU Throttling Watcher:** Monitors `/sys/fs/cgroup/cpu.stat` on target containers during peak stress to flag CFS quota throttling that degrades application latency.
-   * **Static DNS & PDB Compliance Auditor:** Alerts if the default K8s `ndots:5` resolver search path is overwhelming CoreDNS, and flags missing `PodDisruptionBudgets` (PDBs).
+1. Controller reconciles a `ScaleValidation` CR, resolving its `targetRef` and computing dynamic load characteristics.
+2. Two jobs are spawned: a Loadgen that drives HTTP traffic and an Observer that watches cluster state and scrapes cgroup metrics.
+3. The Observer correlates the Loadgen request log with EndpointSlice updates and emits a structured verdict.
+4. The verdict is written back to the CR's `status` subresource, including HPA latency, throttling, leakage diagnostics, and a pass / fail / warning band.
 
 ---
 
-## 📄 Custom Resource Schema
+## Features
 
-Define validation runs declaratively:
+- **Custom Resource driven** — `validation.scale-sentry.ek.co/v1alpha1` `ScaleValidation` resource stores test configuration, SLA targets, and execution history in the resource's `status` subresource.
+- **Annotation bridge** — annotating an existing `Deployment` with `validation.scale-sentry.ek.co/enabled=true` provisions a shadow `ScaleValidation` automatically, no manifests required.
+- **Endpoint targeting modes** — three target resolution strategies (`ServiceDefault`, `AutoDiscoverProbe`, `CustomPath`) and two network paths (direct `ClusterIP` or `Ingress` gateway) to isolate scaling bottlenecks from edge bottlenecks.
+- **Chaos disruption** — optionally terminates a healthy replica at peak load to test `terminationGracePeriodSeconds`, `preStop` hooks, and EndpointSlice propagation delays.
+- **Diagnostic suite**:
+  - **Readiness lag analyzer** — measures `PodRunning` → `PodReady` delta to detect sparse probe sampling.
+  - **TCP / TLS handshake tester** — short-lived versus persistent connection pools.
+  - **cgroup throttle watcher** — scrapes `nr_throttled` / `nr_periods` via Kubelet cAdvisor to flag CFS quota throttling.
+  - **DNS + PDB auditor** — flags `ndots:5` resolver pressure and missing `PodDisruptionBudget`s.
+
+---
+
+## Custom Resource
 
 ```yaml
 apiVersion: validation.scale-sentry.ek.co/v1alpha1
@@ -82,29 +76,23 @@ metadata:
   name: billing-service-validation
   namespace: production
 spec:
-  # Target workload to stress and validate
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: billing-service
 
-  # Maximum allowed time for HPA scale-up and pod readiness
   sla: 90s
 
-  # Where to send the stress traffic
   target:
-    mode: AutoDiscoverProbe # Options: ServiceDefault | AutoDiscoverProbe | CustomPath
-    customPath: "/api/v1/checkout" # Used if mode is CustomPath
+    mode: AutoDiscoverProbe   # ServiceDefault | AutoDiscoverProbe | CustomPath
+    customPath: /api/v1/checkout
     port: 8080
-    # Network routing pathway. Run separately to isolate bottlenecks
-    networkPath: Ingress # Options: ClusterIP | Ingress
+    networkPath: Ingress      # ClusterIP | Ingress
 
-  # Load stress characteristics
   load:
     baseRps: 150
     concurrencyFactor: 50
 
-  # Chaos and Graceful Termination settings
   disruption:
     injectPodDeletion: true
     minReplicasForChaos: 2
@@ -113,56 +101,88 @@ spec:
 
 ---
 
-## 🚀 Quickstart
+## Install
 
-1. **Deploy the CRD schemas:**
-   ```bash
-   kubectl apply -f config/crd/bases/
-   ```
-2. **Deploy the Controller:**
-   ```bash
-   helm upgrade --install scale-sentry ./charts/scale-sentry -n scale-sentry --create-namespace
-   ```
-3. **Trigger Validation via Annotations:**
-   Annotate any deployment to activate auto-validation:
-   ```bash
-   kubectl annotate deployment/payment-service scale-sentry.ek.co/validate="true"
-   kubectl annotate deployment/payment-service scale-sentry.ek.co/scale-up-sla="90s"
-   ```
+Install via OCI Helm chart from GHCR:
+
+```bash
+helm install scale-sentry \
+  oci://ghcr.io/ethan-kane-ops/charts/scale-sentry \
+  --version 0.1.0 \
+  --namespace scale-sentry --create-namespace
+```
+
+Annotate any Deployment to opt into shadow validation:
+
+```bash
+kubectl annotate deployment/payment-service \
+  validation.scale-sentry.ek.co/enabled=true \
+  validation.scale-sentry.ek.co/sla=90s \
+  validation.scale-sentry.ek.co/base-rps=150 \
+  validation.scale-sentry.ek.co/port=8080
+```
+
+Available container images:
+
+- `ghcr.io/ethan-kane-ops/scale-sentry` — controller
+- `ghcr.io/ethan-kane-ops/scale-sentry-loadgen` — load generator job
+- `ghcr.io/ethan-kane-ops/scale-sentry-observer` — observer job
+
+All images are multi-arch (`linux/amd64`, `linux/arm64`).
 
 ---
 
-## 🛠️ Local Development
+## Local Development
 
 ### Prerequisites
 
-* Go 1.22+
-* [mise](https://mise.jdx.dev/) (Runtime manager)
-* [just](https://just.systems/) (Task executor)
-* A local Kubernetes development cluster ([Kind](https://kind.sigs.k8s.io/) or [Minikube](https://minikube.sigs.k8s.io/))
+- Go ≥ 1.25 (toolchain pin in `go.mod`)
+- [mise](https://mise.jdx.dev/installing-mise.html) — runtime + tool manager
+- [just](https://just.systems/man/en/) — task runner (provisioned by `mise install`)
+- A local Kubernetes cluster — [Kind](https://kind.sigs.k8s.io/) or [Minikube](https://minikube.sigs.k8s.io/)
 
-### Get Started
+### Bring up a dev cluster
 
-1. Clone and install dependencies:
-   ```bash
-   mise install
-   ```
-2. Spin up a local Kind cluster and load schemas:
-   ```bash
-   kind create cluster --name scale-sentry
-   just install-crds
-   ```
-3. Run the controller locally against your cluster:
-   ```bash
-   just run
-   ```
-4. Run code checkers before committing:
-   ```bash
-   just check # runs tidy, linter, and unit tests
-   ```
+```bash
+mise install              # provisions Go, kubectl, helm, kind, just, kubeconform
+just dev-up               # creates Kind cluster, builds + loads images, installs the chart
+```
+
+Apply a sample CR:
+
+```bash
+kubectl apply -f config/samples/targets/podinfo.yaml
+kubectl apply -f config/samples/scalevalidation-servicedefault.yaml
+```
+
+Tear down:
+
+```bash
+just dev-down
+```
+
+### Common tasks
+
+| Command                | Purpose                                                 |
+|------------------------|---------------------------------------------------------|
+| `just check`           | tidy + lint + unit tests — required before every commit |
+| `just test-integration`| envtest suite (downloads apiserver + etcd assets)       |
+| `just test-e2e`        | full verdict E2E in Kind                                |
+| `just generate`        | regenerate `zz_generated.deepcopy.go`                   |
+| `just manifests`       | regenerate CRD + RBAC YAML from kubebuilder markers     |
+
+Run `just generate && just manifests` after any change to `api/v1alpha1/*_types.go`.
 
 ---
 
-## 📄 License
+## Contributing
 
-Distributed under the Apache License 2.0. See `LICENSE` for details.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, coding guidelines, and the pull request workflow. Bug reports and feature requests go through the [issue templates](./.github/ISSUE_TEMPLATE/).
+
+## Security
+
+Vulnerabilities should be reported privately via [GitHub Security Advisory](https://github.com/ethan-kane-ops/scale-sentry/security/advisories/new). See [SECURITY.md](./SECURITY.md) for the disclosure policy.
+
+## License
+
+Apache License 2.0. See [LICENSE](./LICENSE).

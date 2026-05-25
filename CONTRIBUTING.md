@@ -1,69 +1,84 @@
 # Contributing to Scale Sentry
 
-First off, thank you for taking the time to contribute! Contributions from the community help make Scale Sentry a robust and reliable tool for everyone.
+Thank you for considering a contribution. This document describes the development workflow, coding standards, and pull request expectations for the project.
 
-This document provides a set of guidelines for contributing to this repository.
-
----
-
-## Code of Conduct
-
-By participating in this project, you agree to maintain a respectful, welcoming, and professional environment. Please be kind and constructive in your feedback and reviews.
+By participating, you agree to abide by the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ---
 
 ## Development Setup
 
-This project uses [mise](https://mise.jdx.dev/) to manage runtime dependencies and [just](https://just.systems/) as a task runner.
+The project uses [mise](https://mise.jdx.dev/) to manage language runtimes and tooling, and [just](https://just.systems/) as a task runner. Both are cross-platform (macOS, Linux, Windows via WSL).
 
 ### Prerequisites
 
-1. Install **mise**:
-   ```bash
-   brew install mise
-   ```
-2. Enable mise in your shell:
-   ```bash
-   mise activate
-   ```
-3. Install dependencies (Go, linter, task tools):
+1. Install **mise** — follow the platform-specific instructions at https://mise.jdx.dev/installing-mise.html
+2. Activate **mise** in your shell — see https://mise.jdx.dev/getting-started.html#activate-mise
+3. Provision the project's pinned tools (Go, kubectl, helm, kind, just, kubeconform, golangci-lint):
    ```bash
    mise install
    ```
+4. Install **pre-commit** — follow the platform-specific instructions at https://pre-commit.com/#install
+5. Enable the hooks:
+   ```bash
+   pre-commit install
+   ```
 
-### Common Targets
+### Local cluster
 
-Use `just` to coordinate your work:
-* `just build` — Compile the Go binary to `bin/scale-sentry`.
-* `just test` — Run all unit tests.
-* `just lint` — Run `golangci-lint` check.
-* `just check` — Tidy dependencies, lint, and run tests (run this before pushing!).
+For end-to-end iteration:
+
+```bash
+just dev-up     # creates a Kind cluster, builds images, installs the chart
+just dev-down   # tears it down
+```
+
+---
+
+## Common Targets
+
+Run `just --list` for the full set. The most-used recipes:
+
+| Target               | Purpose                                                |
+|----------------------|--------------------------------------------------------|
+| `just check`         | tidy + lint + unit tests — **required before every commit** |
+| `just test`          | unit tests only                                        |
+| `just test-integration` | envtest suite (downloads apiserver + etcd binaries on first run) |
+| `just test-e2e`      | full verdict E2E inside a Kind cluster                 |
+| `just lint`          | `go vet` + `golangci-lint` with `envtest` and `e2e` build tags |
+| `just generate`      | regenerate `zz_generated.deepcopy.go`                  |
+| `just manifests`     | regenerate CRD + RBAC YAML from kubebuilder markers    |
+
+Run `just generate && just manifests` after any change to `api/v1alpha1/*_types.go`. Generated files are committed; CI fails on drift.
 
 ---
 
 ## Coding Guidelines
 
-To maintain code quality, please adhere to the following Go paradigms:
+### Errors
 
-1. **Error Formatting:**
-   * Standard library style: lower-case, no trailing punctuation.
-   * Wrap errors with `%w` for context propagation: `fmt.Errorf("fetching endpoints: %w", err)`.
-2. **Testing Standards:**
-   * Write **table-driven tests** for complex logical paths.
-   * Use `t.TempDir()` for temporary directory fixtures.
-   * Avoid long sleeps or external network dependencies in unit tests. Mock external calls or use test servers.
-3. **Pre-commit Hooks:**
-   * Set up pre-commit hooks:
-     ```bash
-     pre-commit install
-     ```
-   * Hooks run automatically on commit to verify formatting and lint rules.
+- Lowercase strings, no trailing punctuation.
+- Wrap with `%w` to preserve the cause: `fmt.Errorf("fetching endpoints: %w", err)`.
+
+### Tests
+
+- Table-driven for any function with more than two logical branches.
+- Use `t.TempDir()` for filesystem fixtures.
+- No `time.Sleep` waits — use `eventually` helpers, channels, or fake clocks.
+- No network dependencies in unit tests — use `httptest.Server` or mocks.
+
+### CRD types
+
+- Any change to `api/v1alpha1/*_types.go` requires `just generate && just manifests`.
+- `FailureRate` and any other `float64` field require `crd:allowDangerousTypes=true` on the controller-gen invocation (already wired in the justfile).
 
 ---
 
-## Commit Message Guidelines
+## Commit Message Format
 
-We enforce **Conventional Commits** to automate changelog generation and versioning. Ensure your commit message follows this format:
+The project uses [Conventional Commits](https://www.conventionalcommits.org/) to drive automated changelog generation via [git-cliff](https://git-cliff.org/).
+
+Format:
 
 ```
 <type>(<scope>): <description>
@@ -73,33 +88,27 @@ We enforce **Conventional Commits** to automate changelog generation and version
 [optional footer(s)]
 ```
 
-### Types:
-* `feat`: A new user-facing feature.
-* `fix`: A bug fix.
-* `docs`: Documentation changes.
-* `style`: Code formatting changes (missing semi-colons, white space, etc.).
-* `refactor`: Code changes that neither fix a bug nor add a feature.
-* `perf`: Performance improvements.
-* `test`: Adding or correcting tests.
-* `chore`: Maintenance tasks, dependencies, build configs.
+**Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `revert`.
 
-### Example:
+**Examples**:
+
 ```
-feat(controller): add auto-discovery for container readiness probes
+feat(controller): auto-discover container readiness probe paths
+fix(observer): scrape cAdvisor through kubelet proxy, not pods/exec
+perf(loadgen): replace unbounded slice with HDR histogram
 ```
+
+Keep the summary under 72 characters and in imperative mood.
 
 ---
 
 ## Pull Request Workflow
 
-1. Fork the repository and create your branch from `main`:
+1. Fork and create a branch from `main`:
    ```bash
-   git checkout -b feat/my-new-feature
+   git checkout -b feat/short-description
    ```
-2. Implement your changes and add corresponding tests.
-3. Run verification checks:
-   ```bash
-   just check
-   ```
-4. Commit your changes following Conventional Commit conventions.
-5. Push to your fork and submit a Pull Request targeting `main`.
+2. Make focused commits — one logical change per commit, each independently buildable.
+3. Run `just check` locally. For CRD or RBAC changes, also run `just test-integration`.
+4. Push your branch and open a Pull Request against `main`. Fill out the PR template.
+5. Pull Requests require CI to pass and at least one maintainer approval before merge.

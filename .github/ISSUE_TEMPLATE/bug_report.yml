@@ -1,0 +1,57 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in scale-sentry
+title: "[BUG]: <title>"
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill out the form below to help us diagnose and fix the issue. The more reproducible the report, the faster it can be addressed.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: e.g. The observer fails to scrape cAdvisor metrics because ...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: |
+        Steps to reproduce the behavior. Include any YAML manifests (ScaleValidation, Deployment, HPA) used.
+      placeholder: |
+        1. Apply the ScaleValidation manifest ...
+        2. Trigger scale up ...
+        3. See error in logs ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Kubernetes distribution + version, Go version, scale-sentry version.
+      placeholder: e.g. Kind v0.22.0, Kubernetes v1.31.2, Go 1.26.3, scale-sentry v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs / Diagnostics
+      description: Paste relevant logs from the controller, observer, or loadgen containers.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Search before filing
+      options:
+        - label: I have searched existing issues to ensure this bug has not already been reported.
+          required: true
