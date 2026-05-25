@@ -23,7 +23,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           experimental: true
       - run: just check
@@ -37,7 +37,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           experimental: true
       - run: just generate manifests
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           experimental: true
       - run: just chart-rbac-check
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           experimental: true
       - run: |
@@ -96,7 +96,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           experimental: true
       - run: just test-e2e
