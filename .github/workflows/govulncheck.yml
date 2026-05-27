@@ -1,0 +1,38 @@
+name: govulncheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly backstop so a newly-disclosed CVE on an existing pin is caught
+    # without requiring a code change. Mondays 04:17 UTC (off-hours, off
+    # the top-of-the-hour stampede).
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: govulncheck-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck (${{ matrix.cmd }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cmd: [scale-sentry, loadgen, observer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Scan ./cmd/${{ matrix.cmd }}
+        run: govulncheck -show verbose ./cmd/${{ matrix.cmd }}
