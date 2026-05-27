@@ -27,6 +27,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	"github.com/ethan-kane-ops/scale-sentry/internal/metrics"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
 )
 
@@ -160,6 +161,7 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	switch {
 	case jobConditionTrue(&job, batchv1.JobFailed):
 		log.Info("loadgen job failed", "job", job.Name)
+		metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
 		return r.setPhase(ctx, &cr, PhaseError)
 	case jobConditionTrue(&job, batchv1.JobComplete):
 		return r.finishRun(ctx, &cr)
@@ -211,9 +213,26 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 	if err := r.Status().Update(ctx, cr); err != nil {
 		return ctrl.Result{}, fmt.Errorf("write run results: %w", err)
 	}
+	recordRunMetrics(cr, report)
 	log.Info("validation run finished",
 		"phase", cr.Status.Phase, "sla", report.SLAStatus, "traffic", report.TrafficIntegrity)
 	return ctrl.Result{}, nil
+}
+
+// recordRunMetrics emits the per-run Prometheus observations once the run
+// has been written back to status. Safe to call with a nil ScaleUpDuration
+// (the HPA react histogram is then skipped, not observed as zero).
+func recordRunMetrics(cr *v1alpha1.ScaleValidation, report observer.Report) {
+	metrics.RunsTotal.WithLabelValues(metrics.VerdictFromStatus(report.SLAStatus, report.TrafficIntegrity)).Inc()
+	if cr.Status.LastRunTime != nil {
+		metrics.RunDurationSeconds.Observe(time.Since(cr.Status.LastRunTime.Time).Seconds())
+	}
+	if report.ScaleUpDuration != nil {
+		metrics.HPAReactSeconds.Observe(report.ScaleUpDuration.Seconds())
+	}
+	for _, d := range report.Diagnostics {
+		metrics.DiagnosticAlertsTotal.WithLabelValues(d.Type, d.Severity).Inc()
+	}
 }
 
 // findJobPod returns the pod created by the CR's loadgen Job, or nil.
@@ -294,6 +313,8 @@ func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *
 			cr.Namespace, cr.Spec.TargetRef.Name, readyReplicas, timeout),
 		Recommendation: "ensure the target Deployment is healthy before applying the ScaleValidation",
 	})
+	metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
+	metrics.DiagnosticAlertsTotal.WithLabelValues("TargetNotReady", "Critical").Inc()
 	return r.setPhase(ctx, cr, PhaseError)
 }
 
@@ -413,6 +434,8 @@ func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1a
 		Message:        msg,
 		Recommendation: rec,
 	})
+	metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
+	metrics.DiagnosticAlertsTotal.WithLabelValues("TLSCABundleMissing", "Critical").Inc()
 	_, err := r.setPhase(ctx, cr, PhaseError)
 	return err
 }
