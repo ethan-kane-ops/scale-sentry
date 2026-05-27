@@ -106,7 +106,7 @@ func TestCompare(t *testing.T) {
 			wantTime:    2 * time.Second,
 		},
 		{
-			name:        "zero window — no periods elapsed",
+			name:        "zero window, no periods elapsed",
 			before:      Stat{NRPeriods: 100, NRThrottled: 5},
 			after:       Stat{NRPeriods: 100, NRThrottled: 5},
 			window:      time.Second,
@@ -115,7 +115,7 @@ func TestCompare(t *testing.T) {
 			wantPct:     0,
 		},
 		{
-			name:        "counter rollback (defensive) — saturating sub yields 0",
+			name:        "counter rollback (defensive), saturating sub yields 0",
 			before:      Stat{NRPeriods: 200, NRThrottled: 10},
 			after:       Stat{NRPeriods: 100, NRThrottled: 5},
 			window:      time.Second,
@@ -151,12 +151,12 @@ func TestDiagnosticsSeverityBands(t *testing.T) {
 		wantSeverity string
 		wantAlerts   int
 	}{
-		{"no throttling — no alert", 100, 0, "", 0},
-		{"info band — 1 pct", 100, 1, "Info", 1},
-		{"warning band — 10 pct", 100, 10, "Warning", 1},
-		{"critical band — 50 pct", 100, 50, "Critical", 1},
-		{"exact warn threshold — 5 pct", 100, 5, "Warning", 1},
-		{"exact critical threshold — 25 pct", 100, 25, "Critical", 1},
+		{"no throttling, no alert", 100, 0, "", 0},
+		{"info band, 1 pct", 100, 1, "Info", 1},
+		{"warning band, 10 pct", 100, 10, "Warning", 1},
+		{"critical band, 50 pct", 100, 50, "Critical", 1},
+		{"exact warn threshold, 5 pct", 100, 5, "Warning", 1},
+		{"exact critical threshold, 25 pct", 100, 25, "Critical", 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

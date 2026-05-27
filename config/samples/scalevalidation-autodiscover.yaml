@@ -1,4 +1,4 @@
-# AutoDiscoverProbe — the controller reads podinfo's readinessProbe
+# AutoDiscoverProbe, the controller reads podinfo's readinessProbe
 # (HTTPGet /readyz on port 9898) and uses that as the loadgen target.
 # The port + path from the spec are overridden by the discovered probe.
 apiVersion: validation.scale-sentry.ek.co/v1alpha1
@@ -13,7 +13,7 @@ spec:
   sla: 90s
   target:
     mode: AutoDiscoverProbe
-    # port is overridden by the probe — kept here as the schema requires it.
+    # port is overridden by the probe, kept here as the schema requires it.
     port: 80
     networkPath: ClusterIP
   load:

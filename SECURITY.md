@@ -10,10 +10,10 @@ https://github.com/ethan-kane-ops/scale-sentry/security/advisories/new
 
 When submitting a report, please include:
 
-- **Affected component** — controller, observer, loadgen, or chart.
-- **Description** — what the vulnerability is and its potential impact.
-- **Reproduction** — step-by-step instructions, including any sample `ScaleValidation` manifests or RBAC configurations.
-- **Mitigation** — any temporary workarounds or fixes you have identified.
+- **Affected component**, controller, observer, loadgen, or chart.
+- **Description**, what the vulnerability is and its potential impact.
+- **Reproduction**, step-by-step instructions, including any sample `ScaleValidation` manifests or RBAC configurations.
+- **Mitigation**, any temporary workarounds or fixes you have identified.
 
 ### Response targets
 

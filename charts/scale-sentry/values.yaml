@@ -10,7 +10,7 @@ controller:
     # Empty tag falls back to .Chart.AppVersion so releases only bump Chart.yaml.
     tag: ""
     pullPolicy: IfNotPresent
-  # No CPU limits by design — let the kernel scheduler arbitrate. Memory
+  # No CPU limits by design, let the kernel scheduler arbitrate. Memory
   # is the only hard cap.
   resources:
     limits:
@@ -26,7 +26,7 @@ controller:
 
 # Images the controller injects into the loadgen Job pod spec. Empty means
 # "compose default GHCR path tagged at .Chart.AppVersion" in the deployment
-# template — override either field to pin a specific image.
+# template, override either field to pin a specific image.
 loadgenImage: ""
 observerImage: ""
 

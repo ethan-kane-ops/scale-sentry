@@ -2,11 +2,11 @@
 // It compares the canonical Pod lifecycle conditions (PodScheduled →
 // Initialized → ContainersReady → PodReady) to surface two failure modes:
 //
-//   - **Sparse sampling** — the probe didn't sample often enough. A long
+//   - **Sparse sampling**, the probe didn't sample often enough. A long
 //     gap between ContainersReady and PodReady relative to periodSeconds
 //     means the kubelet waited multiple probe periods before declaring the
 //     pod ready, prolonging cold-start traffic exposure.
-//   - **Container startup latency** — Initialized → ContainersReady is the
+//   - **Container startup latency**, Initialized → ContainersReady is the
 //     time the container takes to come up; surfaced informationally.
 //
 // The package never queries the K8s API. The controller fetches
@@ -36,13 +36,12 @@ type Report struct {
 	// compatibility; equals TrueSchedulingLatency + InitContainerRuntime
 	// when the kubelet exposes PodReadyToStartContainers).
 	SchedulingLatency time.Duration
-	// TrueSchedulingLatency is Scheduled → PodReadyToStartContainers — the
+	// TrueSchedulingLatency is Scheduled → PodReadyToStartContainers, the
 	// kube-scheduler bind + kubelet sandbox setup phase. Zero when the
 	// PodReadyToStartContainers condition is absent (clusters older than
 	// the GA of the condition or where the feature gate is off).
 	TrueSchedulingLatency time.Duration
-	// InitContainerRuntime is PodReadyToStartContainers → Initialized —
-	// init-container image pull + execution time, which previously rolled
+	// InitContainerRuntime is PodReadyToStartContainers → Initialized, // init-container image pull + execution time, which previously rolled
 	// up into SchedulingLatency and inflated it whenever a workload used
 	// non-trivial init containers (sidecar bootstraps, schema migrations).
 	// Zero when PodReadyToStartContainers is absent.
@@ -50,7 +49,7 @@ type Report struct {
 	// StartupLatency is Initialized → ContainersReady (container image pull,
 	// process start, dependencies).
 	StartupLatency time.Duration
-	// ReadinessLag is ContainersReady → PodReady — the gap where the
+	// ReadinessLag is ContainersReady → PodReady, the gap where the
 	// container is running but the readiness probe has not yet confirmed it.
 	// Long lags indicate the kubelet is sampling sparsely relative to
 	// periodSeconds.
@@ -146,7 +145,7 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 		Type:     "ReadinessSamplingSparse",
 		Severity: severity,
 		Message: fmt.Sprintf(
-			"readiness lag %s spans %.1fx the probe period (%s) — container was running but unmarked Ready for %d+ probe cycles",
+			"readiness lag %s spans %.1fx the probe period (%s), container was running but unmarked Ready for %d+ probe cycles",
 			r.ReadinessLag, periodsCovered, period, int(periodsCovered),
 		),
 		Recommendation: "lower readinessProbe.periodSeconds (e.g. 2s) and/or readinessProbe.failureThreshold to shorten cold-start exposure",

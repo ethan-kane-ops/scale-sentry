@@ -1,8 +1,8 @@
-# podinfo — a lightweight HTTP echo workload by Stefan Prodan. Used as the
+# podinfo, a lightweight HTTP echo workload by Stefan Prodan. Used as the
 # canonical demo target for ScaleValidation runs. Pairs with the sample CRs
 # in config/samples/scalevalidation-*.yaml.
 #
-# Note: this is a vanilla HTTP target — it is not CPU-bound or memory-bound
+# Note: this is a vanilla HTTP target, it is not CPU-bound or memory-bound
 # under load. ENG-39 introduces a real CPU-burner workload + metrics-server
 # tuning for verdict-asserting E2E runs.
 apiVersion: apps/v1
@@ -61,7 +61,7 @@ spec:
 ---
 # HPA on CPU utilisation. Without metrics-server installed in the cluster
 # the HPA cannot fetch metrics and the ScaleValidation run will reach phase
-# Failed with an HPAUnableToScale diagnostic — exactly the kind of finding
+# Failed with an HPAUnableToScale diagnostic, exactly the kind of finding
 # the operator is designed to surface.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

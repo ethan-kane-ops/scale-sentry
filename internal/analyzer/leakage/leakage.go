@@ -3,7 +3,7 @@
 // with the exact timestamps Pod IPs are plumbed into EndpointSlices.
 //
 // The diagnostic is "your service started accepting traffic before it was
-// actually ready" — requests that fail within a short window after an
+// actually ready", requests that fail within a short window after an
 // endpoint flips Ready=true indicate that either the readiness probe is
 // lying or kube-proxy is racing the endpoint plumbing.
 //
@@ -71,7 +71,7 @@ type Report struct {
 	// the leakage window of at least one EndpointReady event.
 	LeakedRequests int
 	// CleanRequests is the count of failed requests that fell outside
-	// every leakage window — these failures are not cold-start related.
+	// every leakage window, these failures are not cold-start related.
 	CleanRequests int
 	// Correlated is the per-event breakdown, ordered by event timestamp.
 	Correlated []CorrelatedEvent

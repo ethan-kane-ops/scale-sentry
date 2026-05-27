@@ -1,5 +1,5 @@
 # Basic ServiceDefault run against the podinfo target. Loadgen hits the
-# Service at "/" — the simplest possible validation.
+# Service at "/", the simplest possible validation.
 apiVersion: validation.scale-sentry.ek.co/v1alpha1
 kind: ScaleValidation
 metadata:

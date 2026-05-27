@@ -15,7 +15,7 @@ import (
 
 // Latency histogram bounds. 1µs..60s with 3 significant figures matches
 // the operational range scale-sentry runs in (sub-ms hot paths through to
-// timeouts) and keeps the per-histogram footprint to a few KB — orders of
+// timeouts) and keeps the per-histogram footprint to a few KB, orders of
 // magnitude smaller than an unbounded []time.Duration that grew to 50M+
 // entries on long high-RPS runs and dominated the Job pod's memory.
 const (
@@ -27,7 +27,7 @@ const (
 // limiterStripes is the number of independent rate.Limiter instances the
 // generator allocates. Workers round-robin across the stripes, splitting
 // the global TargetRPS budget evenly. A single shared limiter has its
-// internal mutex contended on every Wait() call — at high RPS with
+// internal mutex contended on every Wait() call, at high RPS with
 // hundreds of workers this contention dominates the run and starves the
 // HTTP path of CPU, throttling actual throughput well below TargetRPS.
 // Eight stripes is the smallest power-of-two that drops contention by
@@ -36,7 +36,7 @@ const (
 const limiterStripes = 8
 
 // Generator drives a single concurrent prober run. One Generator runs
-// exactly one URL with one ConnectionMode — re-use across runs is not
+// exactly one URL with one ConnectionMode, re-use across runs is not
 // supported.
 type Generator struct {
 	cfg      Config
@@ -146,8 +146,7 @@ func (g *Generator) do(ctx context.Context, c *collector) {
 	at := time.Now()
 
 	if ctx.Err() != nil {
-		// Don't record requests that completed after cancellation —
-		// they distort the steady-state numbers.
+		// Don't record requests that completed after cancellation, // they distort the steady-state numbers.
 		return
 	}
 
@@ -239,7 +238,7 @@ func (c *collector) recordError(cat ErrorCategory, latency time.Duration, at tim
 // recordLatency clamps the value into the histogram range and records it.
 // The caller must hold c.mu. Out-of-range values (which would otherwise
 // drop silently with an error) are clipped so the percentile tails stay
-// honest — a 90s timeout shows up as latencyHistogramMax rather than
+// honest, a 90s timeout shows up as latencyHistogramMax rather than
 // vanishing from the distribution entirely.
 func (c *collector) recordLatency(latency time.Duration) {
 	v := int64(latency)

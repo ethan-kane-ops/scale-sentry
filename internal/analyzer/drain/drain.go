@@ -3,7 +3,7 @@
 // removed from EndpointSlices.
 //
 // Errors that land *after* an endpoint is removed indicate the pod stopped
-// accepting connections without draining in-flight requests — typically a
+// accepting connections without draining in-flight requests, typically a
 // missing preStop hook, too-short terminationGracePeriodSeconds, or a
 // SIGTERM that propagated faster than kube-proxy could update iptables.
 //
@@ -44,7 +44,7 @@ type Report struct {
 	Window      time.Duration
 
 	// DroppedRequests is the count of failures inside the drain window of
-	// at least one removal — requests the pod failed to drain gracefully.
+	// at least one removal, requests the pod failed to drain gracefully.
 	DroppedRequests int
 	// CleanRequests is the count of failures outside every drain window.
 	CleanRequests int
@@ -88,7 +88,7 @@ func Correlate(events []leakage.EndpointEvent, errors []leakage.ErrorSample, dra
 		correlated[i] = CorrelatedRemoval{Event: ev}
 	}
 
-	// Two-pointer scan over sorted removals + sorted errors — same
+	// Two-pointer scan over sorted removals + sorted errors, same
 	// rationale as the leakage analyzer: both streams move forward in
 	// time, so a closed drain window cannot re-open for later errors,
 	// turning the old O(R*E) match into O(R + E).

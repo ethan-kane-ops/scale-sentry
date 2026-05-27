@@ -19,7 +19,7 @@ import (
 
 const (
 	// targetImage is the canonical image used by the Kubernetes HPA
-	// walkthrough — a tiny php-apache server that runs a sqrt loop on
+	// walkthrough, a tiny php-apache server that runs a sqrt loop on
 	// every request, so CPU usage scales linearly with RPS. Off-the-shelf
 	// HTTP servers (nginx / echo / whoami) consume nearly no CPU under
 	// load and will not trigger the HPA at all.

@@ -108,7 +108,7 @@ func TestDiagnostics_SeverityBands(t *testing.T) {
 		wantAlerts   int
 	}{
 		{"no drops", 0, "", 0},
-		{"single drop — Warning", 1, "Warning", 1},
+		{"single drop, Warning", 1, "Warning", 1},
 		{"below critical threshold", 24, "Warning", 1},
 		{"at critical threshold", 25, "Critical", 1},
 		{"well over critical", 100, "Critical", 1},

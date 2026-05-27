@@ -3,7 +3,7 @@
 // traffic at a target deployment while the validation suite runs.
 //
 // The generator is intentionally narrow:
-//   - one URL per run (path isolation — no interleaved traffic patterns)
+//   - one URL per run (path isolation, no interleaved traffic patterns)
 //   - one connection mode per run (KeepAlive or ShortLived)
 //   - rate-limited concurrent prober loop with bounded worker pool
 //

@@ -2,7 +2,7 @@
 // A workload with no PDB can lose every replica at once during a node
 // drain; a misconfigured PDB can block drains entirely. Both are flagged.
 //
-// The package is data-only — the controller fetches the workload's pod
+// The package is data-only, the controller fetches the workload's pod
 // labels and the namespace's PodDisruptionBudgets and passes them in.
 package pdb
 
@@ -90,7 +90,7 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 		alerts = append(alerts, v1alpha1.DiagnosticAlert{
 			Type:           "MissingPDB",
 			Severity:       "Warning",
-			Message:        "no PodDisruptionBudget selects this workload — a node drain or cluster upgrade can evict every replica simultaneously",
+			Message:        "no PodDisruptionBudget selects this workload, a node drain or cluster upgrade can evict every replica simultaneously",
 			Recommendation: "add a PodDisruptionBudget with minAvailable below the replica count (e.g. minAvailable: 50%)",
 		})
 	}
@@ -99,7 +99,7 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 			alerts = append(alerts, v1alpha1.DiagnosticAlert{
 				Type:           "PDBBlocksEviction",
 				Severity:       "Warning",
-				Message:        fmt.Sprintf("PodDisruptionBudget %q permits zero voluntary evictions at %d replica(s) — node drains will hang indefinitely", m.Name, r.Replicas),
+				Message:        fmt.Sprintf("PodDisruptionBudget %q permits zero voluntary evictions at %d replica(s), node drains will hang indefinitely", m.Name, r.Replicas),
 				Recommendation: "lower minAvailable or raise maxUnavailable so at least one pod can be evicted during a drain",
 			})
 		}

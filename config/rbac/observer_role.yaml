@@ -3,11 +3,11 @@
 # namespace, and scrapes the kubelet's cAdvisor `/metrics/cadvisor`
 # endpoint through the apiserver proxy for CFS throttle counters.
 #
-# The proxy hop requires `nodes/proxy` (cluster-scoped) — modelled as a
+# The proxy hop requires `nodes/proxy` (cluster-scoped), modelled as a
 # ClusterRoleBinding to the same observer SA. The rest stays a namespaced
 # Role since it only touches in-namespace objects. Namespace is applied at
 # deploy time (see the Helm chart in ENG-38). This file is hand-written
-# — controller-gen only emits the manager-role from kubebuilder markers.
+# controller-gen only emits the manager-role from kubebuilder markers.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -60,7 +60,7 @@ subjects:
   name: scale-sentry-observer
 ---
 # Cluster-scoped read for kubelet cAdvisor scraping. The verb is `get`
-# on the nodes/proxy subresource — read-only and substantially lower
+# on the nodes/proxy subresource, read-only and substantially lower
 # privilege than the original `pods/exec` (`create`) on every workload
 # container in the namespace.
 apiVersion: rbac.authorization.k8s.io/v1

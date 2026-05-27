@@ -16,7 +16,7 @@ import (
 // observer never needs a direct network path to the node. This replaces
 // the original `pods/exec` + `cat /sys/fs/cgroup/cpu.stat` approach, which
 // (1) breaks on distroless target images that lack `cat`, and (2) requires
-// `pods/exec` RBAC — a high-privilege verb the observer SA otherwise has
+// `pods/exec` RBAC, a high-privilege verb the observer SA otherwise has
 // no use for.
 func (s *Session) scrapeCgroup(ctx context.Context, pod *corev1.Pod) (cgroup.Stat, error) {
 	if pod == nil || len(pod.Spec.Containers) == 0 {

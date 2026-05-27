@@ -30,7 +30,7 @@ type ErrorSample struct {
 
 // maxErrorSamples caps Result.ErrorSamples so a pathological run cannot
 // produce an unbounded JSON payload. A run with more failures than this is
-// already a clear failure — truncation does not change the verdict.
+// already a clear failure, truncation does not change the verdict.
 const maxErrorSamples = 10000
 
 // Result is the summary emitted by [Generator.Run].

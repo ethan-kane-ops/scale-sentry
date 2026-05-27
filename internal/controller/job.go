@@ -44,7 +44,7 @@ func loadgenJobName(cr *v1alpha1.ScaleValidation) string {
 
 // buildLoadgenJob constructs the validation Job: the loadgen container plus
 // the observer native sidecar, sharing an emptyDir for the result file.
-// BackoffLimit is 0 — a load run is a measurement, not retryable work.
+// BackoffLimit is 0, a load run is a measurement, not retryable work.
 func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation, url string) *batchv1.Job {
 	backoffLimit := int32(0)
 	grace := int64(jobGracePeriodSeconds)
@@ -70,7 +70,7 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 						Name:         runVolumeName,
 						VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 					}},
-					// The observer is a native sidecar — a restartPolicy:
+					// The observer is a native sidecar, a restartPolicy:
 					// Always init container. It starts before the load
 					// generator and is SIGTERM'd once loadgen exits, which
 					// is its signal to finalize and print the Report.
