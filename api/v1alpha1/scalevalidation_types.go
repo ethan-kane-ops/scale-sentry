@@ -137,7 +137,7 @@ type DiagnosticAlert struct {
 // ScaleValidationStatus defines the observed state of a ScaleValidation run.
 type ScaleValidationStatus struct {
 	// Phase represents the current lifecycle state.
-	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Error
+	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Error;Terminating
 	Phase string `json:"phase,omitempty"`
 
 	// ScaleUpDuration is the measured time from HPA trigger to all replicas ready.

@@ -40,16 +40,26 @@ const (
 )
 
 // Lifecycle phases written to status.phase. Pending and Running are
-// transient; Succeeded, Failed, and Error are terminal. Failed (the SLA /
-// traffic-integrity verdict) is wired once result parsing lands in ENG-36, // ENG-35 only distinguishes Succeeded (the run completed) from Error (the
-// run could not be carried out).
+// transient; Succeeded, Failed, and Error are terminal. Terminating is the
+// transient phase while the finalizer drains child resources after the CR
+// has a deletionTimestamp.
 const (
-	PhasePending   = "Pending"
-	PhaseRunning   = "Running"
-	PhaseSucceeded = "Succeeded"
-	PhaseFailed    = "Failed"
-	PhaseError     = "Error"
+	PhasePending     = "Pending"
+	PhaseRunning     = "Running"
+	PhaseSucceeded   = "Succeeded"
+	PhaseFailed      = "Failed"
+	PhaseError       = "Error"
+	PhaseTerminating = "Terminating"
 )
+
+// scaleValidationFinalizer guards the CR from immediate deletion so the
+// reconciler can tear down its child loadgen Job + observer sidecar pod
+// before letting Kubernetes garbage-collect the CR.
+const scaleValidationFinalizer = "validation.scale-sentry.ek.co/finalizer"
+
+// childTerminationRequeue is how long to wait for a child Job + pods to
+// fully clear after a Delete request before the finalizer is dropped.
+const childTerminationRequeue = 2 * time.Second
 
 // ScaleValidationReconciler reconciles a ScaleValidation object.
 type ScaleValidationReconciler struct {
@@ -87,13 +97,27 @@ type ScaleValidationReconciler struct {
 
 // Reconcile drives the ScaleValidation lifecycle: empty -> Pending -> spawn
 // loadgen Job -> Running -> Succeeded/Error once the Job reaches a terminal
-// condition. Terminal phases are not re-run.
+// condition. Terminal phases are not re-run. CRs carrying a
+// deletionTimestamp run the finalizer cleanup path before yielding to GC.
 func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	var cr v1alpha1.ScaleValidation
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if !cr.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, &cr)
+	}
+	if !controllerutil.ContainsFinalizer(&cr, scaleValidationFinalizer) {
+		controllerutil.AddFinalizer(&cr, scaleValidationFinalizer)
+		if err := r.Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
+		}
+		// Continue this reconcile so the first observed phase update is
+		// in the same pass. r.Update refreshes ResourceVersion in-place,
+		// so the subsequent Status().Update below still applies cleanly.
 	}
 
 	switch cr.Status.Phase {
@@ -301,6 +325,55 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 	now := metav1.Now()
 	cr.Status.LastRunTime = &now
 	return r.setPhase(ctx, cr, PhaseRunning)
+}
+
+// finalize handles the deletion path: surfaces a Terminating phase,
+// requests deletion of the child loadgen Job (Background propagation, so
+// pods follow), waits one short requeue for the apiserver to ack, then
+// removes the finalizer so the CR is garbage-collected. Safe to re-run
+// against a CR whose children were already gone before the user issued
+// the delete.
+func (r *ScaleValidationReconciler) finalize(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	if !controllerutil.ContainsFinalizer(cr, scaleValidationFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	var job batchv1.Job
+	jobKey := types.NamespacedName{Namespace: cr.Namespace, Name: loadgenJobName(cr)}
+	err := r.Get(ctx, jobKey, &job)
+	switch {
+	case apierrors.IsNotFound(err):
+		// Job is gone; fall through to drop the finalizer.
+	case err != nil:
+		return ctrl.Result{}, fmt.Errorf("get loadgen job during finalize: %w", err)
+	default:
+		// Job still around. Surface Terminating phase for operator
+		// visibility, request deletion, and requeue so the apiserver
+		// has time to clear it before the finalizer drops.
+		if cr.Status.Phase != PhaseTerminating {
+			cr.Status.Phase = PhaseTerminating
+			if err := r.Status().Update(ctx, cr); err != nil {
+				return ctrl.Result{}, fmt.Errorf("set Terminating phase: %w", err)
+			}
+		}
+		if job.DeletionTimestamp.IsZero() {
+			bg := metav1.DeletePropagationBackground
+			if err := r.Delete(ctx, &job, &client.DeleteOptions{PropagationPolicy: &bg}); err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, fmt.Errorf("delete loadgen job: %w", err)
+			}
+			log.Info("requested loadgen job deletion during finalize", "job", job.Name)
+		}
+		return ctrl.Result{RequeueAfter: childTerminationRequeue}, nil
+	}
+
+	controllerutil.RemoveFinalizer(cr, scaleValidationFinalizer)
+	if err := r.Update(ctx, cr); err != nil {
+		return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
+	}
+	log.Info("finalizer removed; CR ready for GC")
+	return ctrl.Result{}, nil
 }
 
 // validateTLSCABundle ensures the CA-bundle ConfigMap referenced by the CR

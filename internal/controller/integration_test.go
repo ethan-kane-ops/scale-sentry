@@ -447,6 +447,95 @@ func TestIntegration_TargetUnready_ThenReady(t *testing.T) {
 	getJob(t, ns, "run-loadgen") // panics via t.Fatalf if absent
 }
 
+// TestIntegration_Finalizer_AddedOnFirstReconcile ensures every fresh CR
+// gains the finalizer before any other work proceeds, so a delete-during-
+// run can drain children deterministically.
+func TestIntegration_Finalizer_AddedOnFirstReconcile(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run")
+	got := getCR(t, ns, "run")
+	if !slices.Contains(got.Finalizers, scaleValidationFinalizer) {
+		t.Errorf("finalizers = %v, want %s present", got.Finalizers, scaleValidationFinalizer)
+	}
+}
+
+// TestIntegration_Finalizer_DeleteWithNoChildren handles the case where
+// the CR is deleted before any Job spawned (target Deployment was never
+// ready, so the reconciler stayed in Pending). The finalizer must drop
+// on the first cleanup reconcile.
+func TestIntegration_Finalizer_DeleteWithNoChildren(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	// No mustCreateReadyTarget: target Deployment is absent, so the
+	// readiness gate holds the CR in Pending without ever spawning a Job.
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run") // adds finalizer + sets Pending
+	reconcileCR(t, r, ns, "run") // Pending + no target -> still Pending
+
+	cr := getCR(t, ns, "run")
+	if err := k8sClient.Delete(context.Background(), cr); err != nil {
+		t.Fatalf("delete CR: %v", err)
+	}
+	reconcileCR(t, r, ns, "run") // finalize path
+
+	if err := k8sClient.Get(context.Background(),
+		types.NamespacedName{Namespace: ns, Name: "run"}, &v1alpha1.ScaleValidation{}); err == nil {
+		t.Error("CR still present after finalize with no children")
+	}
+}
+
+// TestIntegration_Finalizer_DeleteWithRunningChild deletes a CR whose
+// loadgen Job is already running. The finalizer must request Job
+// deletion, requeue, then drop and let GC remove the CR.
+func TestIntegration_Finalizer_DeleteWithRunningChild(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run") // finalizer
+	reconcileCR(t, r, ns, "run") // Pending
+	reconcileCR(t, r, ns, "run") // Running + Job spawned
+	getJob(t, ns, "run-loadgen") // sanity
+
+	cr := getCR(t, ns, "run")
+	if err := k8sClient.Delete(context.Background(), cr); err != nil {
+		t.Fatalf("delete CR: %v", err)
+	}
+
+	// First finalize reconcile: requests Job delete + sets Terminating,
+	// requeues for child to clear.
+	reconcileCR(t, r, ns, "run")
+	got := getCR(t, ns, "run")
+	if got.Status.Phase != PhaseTerminating {
+		t.Errorf("phase = %q, want Terminating during finalize", got.Status.Phase)
+	}
+
+	// Force-clear the Job so the second finalize observes IsNotFound.
+	// envtest does not run the GC, so an in-test cleanup stands in.
+	var job batchv1.Job
+	if err := k8sClient.Get(context.Background(),
+		types.NamespacedName{Namespace: ns, Name: "run-loadgen"}, &job); err == nil {
+		zero := int64(0)
+		if err := k8sClient.Delete(context.Background(), &job, &client.DeleteOptions{
+			GracePeriodSeconds: &zero,
+		}); err != nil {
+			t.Fatalf("force-delete job: %v", err)
+		}
+	}
+
+	reconcileCR(t, r, ns, "run") // finalizer drops
+	if err := k8sClient.Get(context.Background(),
+		types.NamespacedName{Namespace: ns, Name: "run"}, &v1alpha1.ScaleValidation{}); err == nil {
+		t.Error("CR still present after finalize with running child cleared")
+	}
+}
+
 // TestIntegration_TLSCABundle_Missing fails the run when spec.target.tls
 // references a ConfigMap that does not exist. The reconciler must move the
 // CR to Error with a TLSCABundleMissing diagnostic and must not create the

@@ -311,6 +311,7 @@ spec:
                 - Succeeded
                 - Failed
                 - Error
+                - Terminating
                 type: string
               scaleUpDuration:
                 description: ScaleUpDuration is the measured time from HPA trigger
