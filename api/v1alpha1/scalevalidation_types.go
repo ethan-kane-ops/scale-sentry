@@ -35,6 +35,44 @@ type TargetConfig struct {
 	// +kubebuilder:validation:Enum=ClusterIP;Ingress
 	// +kubebuilder:default=ClusterIP
 	NetworkPath string `json:"networkPath"`
+
+	// TLS configures HTTPS verification for the loadgen client. Only
+	// applies when the resolved target URL uses the https scheme.
+	// +optional
+	TLS *TLSConfig `json:"tls,omitempty"`
+}
+
+// TLSConfig configures TLS verification for the loadgen client.
+// InsecureSkipVerify and CABundle are mutually exclusive; setting both is
+// rejected by CRD validation.
+// +kubebuilder:validation:XValidation:rule="!(self.insecureSkipVerify == true && has(self.caBundle))",message="insecureSkipVerify and caBundle are mutually exclusive"
+type TLSConfig struct {
+	// InsecureSkipVerify disables certificate verification entirely.
+	// Use only for dev / CI clusters; production runs should pin a CA.
+	// +kubebuilder:default=false
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+
+	// CABundle points to a ConfigMap key containing one or more
+	// PEM-encoded certificates trusted by the loadgen client.
+	// +optional
+	CABundle *CABundleSource `json:"caBundle,omitempty"`
+}
+
+// CABundleSource references a PEM bundle living in a Kubernetes object.
+// Only ConfigMapRef is supported today; Secret backing is a future ticket.
+type CABundleSource struct {
+	// ConfigMapRef selects a key in a ConfigMap in the same namespace as
+	// the ScaleValidation.
+	ConfigMapRef ConfigMapKeyRef `json:"configMapRef"`
+}
+
+// ConfigMapKeyRef identifies a single key in a ConfigMap.
+type ConfigMapKeyRef struct {
+	// Name of the ConfigMap.
+	Name string `json:"name"`
+	// Key within the ConfigMap data block holding the PEM bundle.
+	Key string `json:"key"`
 }
 
 // LoadConfig defines the synthetic traffic profile.

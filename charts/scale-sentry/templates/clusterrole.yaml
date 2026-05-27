@@ -9,14 +9,14 @@ metadata:
     {{- include "scale-sentry.labels" . | nindent 4 }}
 rules:
 - apiGroups: [""]
+  resources: [configmaps, pods/log]
+  verbs: [get]
+- apiGroups: [""]
   resources: [events]
   verbs: [create, patch]
 - apiGroups: [""]
   resources: [pods]
   verbs: [get, list, watch]
-- apiGroups: [""]
-  resources: [pods/log]
-  verbs: [get]
 - apiGroups: [apps]
   resources: [deployments]
   verbs: [get, list, watch]

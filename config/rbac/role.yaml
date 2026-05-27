@@ -7,6 +7,13 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  - pods/log
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
   - events
   verbs:
   - create
@@ -19,12 +26,6 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods/log
-  verbs:
-  - get
 - apiGroups:
   - apps
   resources:

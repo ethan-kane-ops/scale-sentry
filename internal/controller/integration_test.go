@@ -447,6 +447,97 @@ func TestIntegration_TargetUnready_ThenReady(t *testing.T) {
 	getJob(t, ns, "run-loadgen") // panics via t.Fatalf if absent
 }
 
+// TestIntegration_TLSCABundle_Missing fails the run when spec.target.tls
+// references a ConfigMap that does not exist. The reconciler must move the
+// CR to Error with a TLSCABundleMissing diagnostic and must not create the
+// loadgen Job.
+func TestIntegration_TLSCABundle_Missing(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
+			CABundle: &v1alpha1.CABundleSource{
+				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "missing-ca", Key: "ca.crt"},
+			},
+		}
+	}))
+
+	reconcileCR(t, r, ns, "run") // -> Pending
+	reconcileCR(t, r, ns, "run") // Pending + missing CA -> Error
+	got := getCR(t, ns, "run")
+	if got.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error after missing CA bundle", got.Status.Phase)
+	}
+	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "TLSCABundleMissing" {
+		t.Errorf("diagnostics = %+v, want one TLSCABundleMissing alert", got.Status.Diagnostics)
+	}
+	var job batchv1.Job
+	if err := k8sClient.Get(context.Background(),
+		types.NamespacedName{Namespace: ns, Name: "run-loadgen"}, &job); err == nil {
+		t.Error("loadgen Job created despite missing CA bundle")
+	}
+}
+
+// TestIntegration_TLSCABundle_MissingKey fails the run when the referenced
+// ConfigMap exists but does not carry the configured key.
+func TestIntegration_TLSCABundle_MissingKey(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "internal-ca", Namespace: ns},
+		Data:       map[string]string{"other.crt": "PEM"},
+	})
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
+			CABundle: &v1alpha1.CABundleSource{
+				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+			},
+		}
+	}))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+	got := getCR(t, ns, "run")
+	if got.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error when CA key is missing", got.Status.Phase)
+	}
+	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "TLSCABundleMissing" {
+		t.Errorf("diagnostics = %+v, want one TLSCABundleMissing alert", got.Status.Diagnostics)
+	}
+}
+
+// TestIntegration_TLSCABundle_Present succeeds when the ConfigMap and key
+// exist, and the loadgen Job mounts the bundle.
+func TestIntegration_TLSCABundle_Present(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "internal-ca", Namespace: ns},
+		Data:       map[string]string{"ca.crt": "PEM"},
+	})
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
+			CABundle: &v1alpha1.CABundleSource{
+				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+			},
+		}
+	}))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+	if got := getCR(t, ns, "run").Status.Phase; got != PhaseRunning {
+		t.Fatalf("phase = %q, want Running with valid CA bundle", got)
+	}
+	job := getJob(t, ns, "run-loadgen")
+	args := job.Spec.Template.Spec.Containers[0].Args
+	if i := slices.Index(args, "--tls-ca-bundle"); i < 0 {
+		t.Errorf("loadgen --tls-ca-bundle flag missing: %v", args)
+	}
+}
+
 // TestIntegration_TargetNotReady_TimesOut drives the timeout branch via
 // the test-only targetReadyTimeout override: a 1ns timeout means the very
 // first gate check (target missing) is over the limit, so the CR is
