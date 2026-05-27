@@ -233,7 +233,7 @@ func TestIntegration_JobVanishedDuringRun(t *testing.T) {
 	r := newReconciler()
 	mustCreate(t, newScaleValidation(ns, "run", nil))
 
-	// Force the CR into Running without ever spawning a Job — the
+	// Force the CR into Running without ever spawning a Job, the
 	// reconciler must detect the missing Job and fail the run. This
 	// sidesteps depending on envtest GC behaviour for a real Job delete.
 	cr := getCR(t, ns, "run")

@@ -4,7 +4,7 @@
 // watches EndpointSlices, scrapes cgroup cpu.stat, and collects pod
 // conditions, then drives the pure analyzer packages and emits a [Report].
 //
-// It runs as a native sidecar in the loadgen Job — started before the load
+// It runs as a native sidecar in the loadgen Job, started before the load
 // generator, terminated (SIGTERM) once the load run exits. On SIGTERM it
 // finalizes (final cgroup sample, pod conditions, loadgen result file),
 // runs every analyzer, and prints the Report as JSON for the controller.
@@ -143,7 +143,7 @@ func (s *Session) Run(ctx context.Context) Report {
 	end := time.Now()
 	stopWatch()
 
-	// Finalization runs on a fresh context — ctx is already cancelled.
+	// Finalization runs on a fresh context, ctx is already cancelled.
 	fin, cancel := context.WithTimeout(context.Background(), finalizeTimeout)
 	defer cancel()
 
@@ -211,7 +211,7 @@ func (s *Session) report(hpaReport *hpa.Report, obs *observed, load loadResult) 
 		if len(correlationDiags) > 0 {
 			// Endpoint event timestamps come from the informer's local
 			// receive time, not from the kubelet/apiserver decision time
-			// — so they trail reality by anywhere from a few ms (warm
+			// so they trail reality by anywhere from a few ms (warm
 			// watch) to several hundred (cold watch / busy apiserver).
 			// Flag whenever a correlation analyzer fires so the operator
 			// reads the leakage / drain counts as an approximation

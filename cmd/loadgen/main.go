@@ -57,7 +57,7 @@ func main() {
 	f.StringVar(&o.targetMode, "target-mode", "", "informational label: ServiceDefault | AutoDiscoverProbe | CustomPath")
 	f.StringVar(&o.networkPath, "network-path", "", "informational label: ClusterIP | Ingress")
 	f.StringVar(&o.resultFile, "result-file", "", "also write the JSON Result to this path (for the observer sidecar)")
-	f.BoolVar(&o.tlsInsecure, "tls-insecure-skip-verify", false, "disable TLS certificate verification (dev / CI only — masks TLS failures)")
+	f.BoolVar(&o.tlsInsecure, "tls-insecure-skip-verify", false, "disable TLS certificate verification (dev / CI only, masks TLS failures)")
 	f.StringVar(&o.tlsCABundle, "tls-ca-bundle", "", "path to a PEM-encoded CA bundle to trust (for private ingress CAs)")
 
 	_ = cmd.MarkFlagRequired("url")

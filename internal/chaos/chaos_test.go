@@ -73,14 +73,14 @@ func TestPlan(t *testing.T) {
 		wantDisrupt time.Time
 	}{
 		{
-			name:       "disabled — no inject, no skip reason",
+			name:       "disabled, no inject, no skip reason",
 			cfg:        Config{InjectPodDeletion: false},
 			pods:       threeHealthy,
 			wantInject: false,
 			wantSkip:   false,
 		},
 		{
-			name:        "enabled, gate met — inject first pod",
+			name:        "enabled, gate met, inject first pod",
 			cfg:         Config{InjectPodDeletion: true, MinReplicasForChaos: 2, TriggerDelay: 30 * time.Second},
 			pods:        threeHealthy,
 			pick:        func(int) int { return 0 },
@@ -89,7 +89,7 @@ func TestPlan(t *testing.T) {
 			wantDisrupt: start.Add(30 * time.Second),
 		},
 		{
-			name:       "enabled, gate met — picker selects middle pod",
+			name:       "enabled, gate met, picker selects middle pod",
 			cfg:        Config{InjectPodDeletion: true, MinReplicasForChaos: 2},
 			pods:       threeHealthy,
 			pick:       func(int) int { return 1 },
@@ -97,7 +97,7 @@ func TestPlan(t *testing.T) {
 			wantVictim: "b",
 		},
 		{
-			name:       "gate not met — 2 healthy, min 3 — skip",
+			name:       "gate not met, 2 healthy, min 3, skip",
 			cfg:        Config{InjectPodDeletion: true, MinReplicasForChaos: 3},
 			pods:       threeHealthy[:2],
 			pick:       func(int) int { return 0 },
@@ -105,7 +105,7 @@ func TestPlan(t *testing.T) {
 			wantSkip:   true,
 		},
 		{
-			name:       "no healthy pods — skip, no panic",
+			name:       "no healthy pods, skip, no panic",
 			cfg:        Config{InjectPodDeletion: true, MinReplicasForChaos: 0},
 			pods:       []corev1.Pod{pod("x", corev1.PodPending, false, false)},
 			pick:       func(int) int { return 0 },

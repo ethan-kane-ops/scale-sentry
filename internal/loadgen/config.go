@@ -20,7 +20,7 @@ const (
 )
 
 // TargetMode mirrors api/v1alpha1.TargetConfig.Mode for result tagging.
-// The loadgen package does not resolve modes — the controller resolves them
+// The loadgen package does not resolve modes, the controller resolves them
 // and passes a concrete URL plus this label.
 type TargetMode string
 

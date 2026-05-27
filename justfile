@@ -1,4 +1,4 @@
-# Version pins — keep in sync with go.mod
+# Version pins, keep in sync with go.mod
 controller_gen_version := "v0.16.5"
 
 # Container image tag for local builds (dev workflow + E2E)
@@ -10,7 +10,7 @@ kind_cluster := "scale-sentry-e2e"
 default:
     @just --list
 
-# Build all binaries into ./bin/ (isolated — does not affect the installed binary)
+# Build all binaries into ./bin/ (isolated, does not affect the installed binary)
 build:
     go build -o bin/ ./cmd/...
 
@@ -33,7 +33,7 @@ manifests: tools
 generate: tools
     controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
-# Run the locally built binary — safe during development, never touches the installed version
+# Run the locally built binary, safe during development, never touches the installed version
 run *args: build
     ./bin/scale-sentry {{args}}
 

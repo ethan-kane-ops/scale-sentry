@@ -16,7 +16,7 @@ import (
 // target is the resolved set of objects the observer watches for one run.
 type target struct {
 	// samplePod is the pod used for cgroup scraping (a pre-existing
-	// replica — cgroup analysis tracks the running workload, not the
+	// replica, cgroup analysis tracks the running workload, not the
 	// cold-start subject).
 	samplePod *corev1.Pod
 	// selector is the deployment's label selector, stored so the
@@ -52,7 +52,7 @@ func (s *Session) resolveTarget(ctx context.Context) (*target, error) {
 }
 
 // pickColdStartPod returns the newest pod whose CreationTimestamp is
-// strictly after runStart — i.e. a pod the HPA spun up during the run.
+// strictly after runStart, i.e. a pod the HPA spun up during the run.
 // Returns nil when no such pod exists (no scale-up happened), so the
 // probe-lag analyzer is skipped instead of being fed a stale pre-stress
 // pod whose conditions describe an unrelated cold start.
@@ -129,7 +129,7 @@ func (s *Session) pollHPA(ctx context.Context, watcher *hpa.Watcher, t *target) 
 }
 
 // collectProbeLag re-lists the target's pods and picks the cold-start
-// subject — the newest pod the HPA spun up after the run began — then
+// subject, the newest pod the HPA spun up after the run began, then
 // builds its probe-lag report from the pod conditions and the readiness
 // probe's periodSeconds. Returns nil when no scale-up pod exists so the
 // analyzer does not emit a verdict against an unrelated pre-stress pod.

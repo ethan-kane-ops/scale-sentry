@@ -9,7 +9,7 @@ import (
 // URLSpec describes the inputs needed to construct a target URL for the
 // ServiceDefault/CustomPath × ClusterIP/Ingress matrix.
 //
-// The builder is pure — it does not call the Kubernetes API. The controller
+// The builder is pure, it does not call the Kubernetes API. The controller
 // is responsible for filling in [URLSpec.ServiceName], [URLSpec.Namespace],
 // [URLSpec.IngressHost], [URLSpec.CustomPath] and [URLSpec.Port] from the
 // resolved Deployment/Service/Ingress objects.

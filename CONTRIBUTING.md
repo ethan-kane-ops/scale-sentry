@@ -12,13 +12,13 @@ The project uses [mise](https://mise.jdx.dev/) to manage language runtimes and t
 
 ### Prerequisites
 
-1. Install **mise** — follow the platform-specific instructions at https://mise.jdx.dev/installing-mise.html
-2. Activate **mise** in your shell — see https://mise.jdx.dev/getting-started.html#activate-mise
+1. Install **mise**, follow the platform-specific instructions at https://mise.jdx.dev/installing-mise.html
+2. Activate **mise** in your shell, see https://mise.jdx.dev/getting-started.html#activate-mise
 3. Provision the project's pinned tools (Go, kubectl, helm, kind, just, kubeconform, golangci-lint):
    ```bash
    mise install
    ```
-4. Install **pre-commit** — follow the platform-specific instructions at https://pre-commit.com/#install
+4. Install **pre-commit**, follow the platform-specific instructions at https://pre-commit.com/#install
 5. Enable the hooks:
    ```bash
    pre-commit install
@@ -41,7 +41,7 @@ Run `just --list` for the full set. The most-used recipes:
 
 | Target               | Purpose                                                |
 |----------------------|--------------------------------------------------------|
-| `just check`         | tidy + lint + unit tests — **required before every commit** |
+| `just check`         | tidy + lint + unit tests, **required before every commit** |
 | `just test`          | unit tests only                                        |
 | `just test-integration` | envtest suite (downloads apiserver + etcd binaries on first run) |
 | `just test-e2e`      | full verdict E2E inside a Kind cluster                 |
@@ -64,8 +64,8 @@ Run `just generate && just manifests` after any change to `api/v1alpha1/*_types.
 
 - Table-driven for any function with more than two logical branches.
 - Use `t.TempDir()` for filesystem fixtures.
-- No `time.Sleep` waits — use `eventually` helpers, channels, or fake clocks.
-- No network dependencies in unit tests — use `httptest.Server` or mocks.
+- No `time.Sleep` waits, use `eventually` helpers, channels, or fake clocks.
+- No network dependencies in unit tests, use `httptest.Server` or mocks.
 
 ### CRD types
 
@@ -108,7 +108,7 @@ Keep the summary under 72 characters and in imperative mood.
    ```bash
    git checkout -b feat/short-description
    ```
-2. Make focused commits — one logical change per commit, each independently buildable.
+2. Make focused commits, one logical change per commit, each independently buildable.
 3. Run `just check` locally. For CRD or RBAC changes, also run `just test-integration`.
 4. Push your branch and open a Pull Request against `main`. Fill out the PR template.
 5. Pull Requests require CI to pass and at least one maintainer approval before merge.

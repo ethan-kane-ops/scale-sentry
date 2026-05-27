@@ -48,8 +48,7 @@ type DeploymentShadowReconciler struct {
 
 // Reconcile ensures an opted-in Deployment has a shadow ScaleValidation. The
 // shadow CR is owner-referenced to the Deployment, so it is garbage-collected
-// when the Deployment is deleted. The CR is created once and never updated —
-// users edit the spawned CR directly to re-tune a run.
+// when the Deployment is deleted. The CR is created once and never updated, // users edit the spawned CR directly to re-tune a run.
 func (r *DeploymentShadowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -73,7 +72,7 @@ func (r *DeploymentShadowReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	sv, err := shadowScaleValidation(&deploy, name)
 	if err != nil {
-		// Malformed annotations are a user error — log and stop rather than
+		// Malformed annotations are a user error, log and stop rather than
 		// hot-loop. A corrected annotation re-triggers a fresh reconcile.
 		log.Error(err, "invalid shadow annotations", "deployment", deploy.Name)
 		return ctrl.Result{}, nil

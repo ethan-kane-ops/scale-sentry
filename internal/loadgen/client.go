@@ -40,7 +40,7 @@ func newClient(cfg Config) (*fasthttp.Client, error) {
 // buildTLSConfig assembles the TLS config from cfg's TLS knobs. Defaults
 // to TLS 1.2+ with the system trust store; an explicit CA bundle replaces
 // the system pool, and InsecureSkipVerify disables verification entirely.
-// The two are mutually compatible — Skip wins — but the loadgen warns
+// The two are mutually compatible, Skip wins, but the loadgen warns
 // loudly via the result labels when Skip is on so misuse is visible.
 func buildTLSConfig(cfg Config) (*tls.Config, error) {
 	t := &tls.Config{MinVersion: tls.VersionTLS12}

@@ -3,7 +3,7 @@
 // derives reaction latency (time to first scale event), settle latency
 // (time until replicas == desired), and SLA compliance.
 //
-// The package never calls the Kubernetes API itself — callers pass
+// The package never calls the Kubernetes API itself, callers pass
 // pre-resolved snapshots so the package stays unit-testable without
 // envtest. The autoscaling/v2 condition types come from upstream k8s.io/api
 // purely for structural typing.
@@ -29,7 +29,7 @@ type Snapshot struct {
 }
 
 // Watcher accumulates snapshots and computes scaling latency on demand.
-// It is not safe for concurrent use — the controller holds it from a
+// It is not safe for concurrent use, the controller holds it from a
 // single reconcile goroutine.
 type Watcher struct {
 	sla      time.Duration

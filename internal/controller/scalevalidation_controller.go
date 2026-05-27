@@ -5,7 +5,7 @@
 // Deployments.
 //
 // The reconcilers are the only place in the codebase that talk to the
-// Kubernetes API — the analyzer and loadgen packages stay client-free.
+// Kubernetes API, the analyzer and loadgen packages stay client-free.
 package controller
 
 import (
@@ -31,7 +31,7 @@ import (
 )
 
 // Readiness gate constants. The loadgen Job is held back until the target
-// Deployment has at least one ready replica — without this the Job dials a
+// Deployment has at least one ready replica, without this the Job dials a
 // Service with no endpoints and the entire run wastes its SLA window on
 // connection-refused errors before the workload is even up.
 const (
@@ -41,8 +41,7 @@ const (
 
 // Lifecycle phases written to status.phase. Pending and Running are
 // transient; Succeeded, Failed, and Error are terminal. Failed (the SLA /
-// traffic-integrity verdict) is wired once result parsing lands in ENG-36 —
-// ENG-35 only distinguishes Succeeded (the run completed) from Error (the
+// traffic-integrity verdict) is wired once result parsing lands in ENG-36, // ENG-35 only distinguishes Succeeded (the run completed) from Error (the
 // run could not be carried out).
 const (
 	PhasePending   = "Pending"
@@ -56,8 +55,7 @@ const (
 type ScaleValidationReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-	// Clientset is the typed client used for the pods/log subresource —
-	// controller-runtime's client does not support log streaming.
+	// Clientset is the typed client used for the pods/log subresource, // controller-runtime's client does not support log streaming.
 	Clientset kubernetes.Interface
 	// LoadgenImage / ObserverImage are the container images for the
 	// loadgen Job's load generator and observer sidecar.
@@ -67,7 +65,7 @@ type ScaleValidationReconciler struct {
 	// granting the observer its read + pods/exec permissions.
 	ObserverServiceAccount string
 	// observerLogFn overrides the observer-log read. Production leaves it
-	// nil — the Clientset pods/log path is used. The integration suite
+	// nil, the Clientset pods/log path is used. The integration suite
 	// injects a stub because envtest runs no kubelet to serve logs.
 	observerLogFn func(context.Context, *corev1.Pod) ([]byte, error)
 	// targetReadyTimeout overrides targetReadyWaitTimeout in tests so the
@@ -241,9 +239,9 @@ func applyReport(cr *v1alpha1.ScaleValidation, report observer.Report) {
 }
 
 // targetReady reports whether the CR's target Deployment has at least one
-// ready replica. A missing Deployment counts as not-ready — the user may
+// ready replica. A missing Deployment counts as not-ready, the user may
 // have applied the CR before the workload, or the workload may still be
-// rolling out — and is reported with readyReplicas=0 rather than as an
+// rolling out, and is reported with readyReplicas=0 rather than as an
 // error. The replica count is returned so the timeout diagnostic can
 // distinguish "deployment missing" (0 ready) from "deployment exists but
 // none healthy" (also 0 ready, but the surrounding events will explain why).
@@ -261,7 +259,7 @@ func (r *ScaleValidationReconciler) targetReady(ctx context.Context, cr *v1alpha
 
 // failTargetNotReady appends a Critical TargetNotReady diagnostic and moves
 // the CR to PhaseError. Called when the target Deployment never reaches
-// readyReplicas>=1 within the wait window — the loadgen run cannot proceed
+// readyReplicas>=1 within the wait window, the loadgen run cannot proceed
 // because there is nothing to send traffic to.
 func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *v1alpha1.ScaleValidation, readyReplicas int32, timeout time.Duration) (ctrl.Result, error) {
 	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{

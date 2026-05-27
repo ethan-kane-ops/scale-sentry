@@ -1,11 +1,10 @@
-# Run with chaos disruption enabled — once peak load is reached, the
+# Run with chaos disruption enabled, once peak load is reached, the
 # controller's chaos planner picks a healthy replica and terminates it.
 # The drain analyzer correlates the resulting endpoint-removal event with
 # any loadgen errors that follow, surfacing UngracefulDrain diagnostics
 # (missing preStop hook, SIGTERM propagation delay, etc.).
 #
-# minReplicasForChaos protects against self-inflicted total outage —
-# chaos is skipped if the gate is not met.
+# minReplicasForChaos protects against self-inflicted total outage, # chaos is skipped if the gate is not met.
 apiVersion: validation.scale-sentry.ek.co/v1alpha1
 kind: ScaleValidation
 metadata:

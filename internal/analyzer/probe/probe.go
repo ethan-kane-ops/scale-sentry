@@ -3,7 +3,7 @@
 // scheme so the controller can construct a load-generator URL that hits
 // the same endpoint Kubernetes itself uses for readiness gating.
 //
-// The package is data-only — callers pass a corev1.Container struct,
+// The package is data-only, callers pass a corev1.Container struct,
 // never a client. K8s discovery (fetching the Pod template from a
 // Deployment / StatefulSet / DaemonSet) is the controller's job.
 package probe
@@ -28,7 +28,7 @@ type Spec struct {
 	// Scheme is "HTTP" or "HTTPS"; defaults to "HTTP".
 	Scheme string
 	// Host is the optional host override from HTTPGetAction.Host
-	// (rarely set in real specs — Kubernetes defaults to the Pod IP).
+	// (rarely set in real specs, Kubernetes defaults to the Pod IP).
 	Host string
 }
 

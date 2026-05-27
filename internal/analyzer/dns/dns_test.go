@@ -21,8 +21,8 @@ func TestAudit(t *testing.T) {
 		wantExplicit bool
 		wantErr      string
 	}{
-		{"nil config — k8s default", nil, 5, false, ""},
-		{"config with no ndots option — k8s default", &corev1.PodDNSConfig{}, 5, false, ""},
+		{"nil config, k8s default", nil, 5, false, ""},
+		{"config with no ndots option, k8s default", &corev1.PodDNSConfig{}, 5, false, ""},
 		{"explicit ndots:1", dnsConfig("1"), 1, true, ""},
 		{"explicit ndots:2", dnsConfig("2"), 2, true, ""},
 		{"explicit ndots:5", dnsConfig("5"), 5, true, ""},
@@ -64,11 +64,11 @@ func TestDiagnostics(t *testing.T) {
 		cfg        *corev1.PodDNSConfig
 		wantAlerts int
 	}{
-		{"default ndots:5 — warns", nil, 1},
-		{"explicit ndots:5 — warns", dnsConfig("5"), 1},
-		{"explicit ndots:6 — warns", dnsConfig("6"), 1},
-		{"explicit ndots:2 — clean", dnsConfig("2"), 0},
-		{"explicit ndots:1 — clean", dnsConfig("1"), 0},
+		{"default ndots:5, warns", nil, 1},
+		{"explicit ndots:5, warns", dnsConfig("5"), 1},
+		{"explicit ndots:6, warns", dnsConfig("6"), 1},
+		{"explicit ndots:2, clean", dnsConfig("2"), 0},
+		{"explicit ndots:1, clean", dnsConfig("1"), 0},
 	}
 
 	for _, tc := range tests {

@@ -3,7 +3,7 @@
 //
 // Kubernetes defaults ndots to 5. With ndots:5 any name containing fewer
 // than 5 dots is first tried against every entry in the search list before
-// being resolved absolutely — turning a single external lookup into up to
+// being resolved absolutely, turning a single external lookup into up to
 // ~8-10 CoreDNS queries. At scale this saturates CoreDNS.
 package dns
 
@@ -22,7 +22,7 @@ const KubernetesDefaultNDots = 5
 
 // Report is the outcome of [Audit].
 type Report struct {
-	// NDots is the effective ndots value — the explicit override when set,
+	// NDots is the effective ndots value, the explicit override when set,
 	// otherwise [KubernetesDefaultNDots].
 	NDots int
 	// Explicit is true when the pod set ndots via dnsConfig.options.
@@ -66,7 +66,7 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 		Type:     "DNSNdotsHigh",
 		Severity: "Warning",
 		Message: fmt.Sprintf(
-			"pod resolves with ndots:%d (%s) — every non-FQDN lookup walks the search list first, multiplying CoreDNS queries up to %dx",
+			"pod resolves with ndots:%d (%s), every non-FQDN lookup walks the search list first, multiplying CoreDNS queries up to %dx",
 			r.NDots, source, r.NDots),
 		Recommendation: "set dnsConfig.options ndots to 1 or 2, or use fully-qualified names (trailing dot) for external hostnames",
 	}}

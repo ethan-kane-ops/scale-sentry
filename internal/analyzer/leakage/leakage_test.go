@@ -79,7 +79,7 @@ func TestCorrelate_AssignsToFirstMatchingEvent(t *testing.T) {
 		{At: start.Add(11 * time.Second), PodIP: "10.0.0.2", Kind: EndpointReady},
 	}
 	errors := []ErrorSample{
-		// Falls inside both windows (10–12s and 11–13s); should attach to the
+		// Falls inside both windows (10 to 12s and 11 to 13s); should attach to the
 		// first event chronologically (10s).
 		{At: start.Add(11500 * time.Millisecond), Category: "Server5xx", Status: 503},
 	}
@@ -133,7 +133,7 @@ func TestDiagnostics_SeverityBands(t *testing.T) {
 		wantAlerts   int
 	}{
 		{"no leaks", 0, "", 0},
-		{"single leak — Warning", 1, "Warning", 1},
+		{"single leak, Warning", 1, "Warning", 1},
 		{"below critical threshold", 49, "Warning", 1},
 		{"at critical threshold", 50, "Critical", 1},
 		{"well over critical", 200, "Critical", 1},

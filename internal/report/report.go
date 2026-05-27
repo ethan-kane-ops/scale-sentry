@@ -53,7 +53,7 @@ func styleFor(severity string) lipgloss.Style {
 }
 
 // Render produces the static dashboard string from a set of alerts.
-// Safe to call without a TTY — Lip Gloss degrades to plain text when the
+// Safe to call without a TTY, Lip Gloss degrades to plain text when the
 // output is not a terminal.
 func Render(alerts []v1alpha1.DiagnosticAlert) string {
 	var b strings.Builder
@@ -61,7 +61,7 @@ func Render(alerts []v1alpha1.DiagnosticAlert) string {
 	b.WriteString("\n\n")
 
 	if len(alerts) == 0 {
-		b.WriteString(okStyle.Render("✓ all checks passed — no diagnostics"))
+		b.WriteString(okStyle.Render("✓ all checks passed, no diagnostics"))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -125,7 +125,7 @@ func NewModel(alerts []v1alpha1.DiagnosticAlert) Model {
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd { return nil }
 
-// Update implements tea.Model — quits on q, esc, or ctrl+c.
+// Update implements tea.Model, quits on q, esc, or ctrl+c.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {

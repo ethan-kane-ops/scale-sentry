@@ -33,20 +33,20 @@ func TestAudit_Coverage(t *testing.T) {
 		wantMatches int
 	}{
 		{
-			name:        "no PDBs — uncovered",
+			name:        "no PDBs, uncovered",
 			pdbs:        nil,
 			replicas:    3,
 			wantCovered: false,
 		},
 		{
-			name:        "matching selector — covered",
+			name:        "matching selector, covered",
 			pdbs:        []policyv1.PodDisruptionBudget{makePDB("a", map[string]string{"app": "checkout"}, intOrStr(1), nil)},
 			replicas:    3,
 			wantCovered: true,
 			wantMatches: 1,
 		},
 		{
-			name:        "non-matching selector — uncovered",
+			name:        "non-matching selector, uncovered",
 			pdbs:        []policyv1.PodDisruptionBudget{makePDB("a", map[string]string{"app": "other"}, intOrStr(1), nil)},
 			replicas:    3,
 			wantCovered: false,
@@ -79,37 +79,37 @@ func TestAudit_BlocksAllDisruption(t *testing.T) {
 		wantBlocks bool
 	}{
 		{
-			name:       "minAvailable below replicas — does not block",
+			name:       "minAvailable below replicas, does not block",
 			pdb:        makePDB("a", appLabels, intOrStr(2), nil),
 			replicas:   3,
 			wantBlocks: false,
 		},
 		{
-			name:       "minAvailable equals replicas — blocks",
+			name:       "minAvailable equals replicas, blocks",
 			pdb:        makePDB("a", appLabels, intOrStr(3), nil),
 			replicas:   3,
 			wantBlocks: true,
 		},
 		{
-			name:       "minAvailable above replicas — blocks",
+			name:       "minAvailable above replicas, blocks",
 			pdb:        makePDB("a", appLabels, intOrStr(5), nil),
 			replicas:   3,
 			wantBlocks: true,
 		},
 		{
-			name:       "minAvailable 100% — blocks",
+			name:       "minAvailable 100%, blocks",
 			pdb:        makePDB("a", appLabels, pctOrStr("100%"), nil),
 			replicas:   4,
 			wantBlocks: true,
 		},
 		{
-			name:       "maxUnavailable 0 — blocks",
+			name:       "maxUnavailable 0, blocks",
 			pdb:        makePDB("a", appLabels, nil, intOrStr(0)),
 			replicas:   3,
 			wantBlocks: true,
 		},
 		{
-			name:       "maxUnavailable 1 — does not block",
+			name:       "maxUnavailable 1, does not block",
 			pdb:        makePDB("a", appLabels, nil, intOrStr(1)),
 			replicas:   3,
 			wantBlocks: false,

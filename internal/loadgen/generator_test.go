@@ -39,7 +39,7 @@ func TestGeneratorRun_HitsTarget(t *testing.T) {
 	// Tolerance: rate limiter holds steady but may undershoot due to
 	// goroutine startup, server response time, etc. Accept 50% to 130%.
 	if result.Sent < 25 || result.Sent > 65 {
-		t.Errorf("Sent = %d, want roughly 50 (range 25–65)", result.Sent)
+		t.Errorf("Sent = %d, want roughly 50 (range 25 to 65)", result.Sent)
 	}
 	if result.Failed != 0 {
 		t.Errorf("Failed = %d, want 0; errors=%v", result.Failed, result.Errors)
@@ -285,7 +285,7 @@ func TestCollectorLatencyEmpty(t *testing.T) {
 
 func TestCollectorLatencyClamp(t *testing.T) {
 	// Values above the histogram max (60s) clamp to max rather than
-	// vanishing — a 90s timeout must still show up at the tail.
+	// vanishing, a 90s timeout must still show up at the tail.
 	c := newCollector()
 	c.start = time.Now()
 	c.recordError(ErrTimeout, 90*time.Second, c.start)

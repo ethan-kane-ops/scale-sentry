@@ -1,4 +1,4 @@
-# metrics-server v0.7.2 — vendored from
+# metrics-server v0.7.2, vendored from
 # https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
 # Sole local edit: --kubelet-insecure-tls added to the Deployment args, so
 # the scraper accepts Kind's self-signed kubelet certs. Required for the

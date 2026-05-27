@@ -10,7 +10,7 @@ repos:
     hooks:
       # Validate generated CRDs, RBAC, and sample CRs against upstream
       # k8s schemas + the datreeio CRD catalog (so our own ScaleValidation
-      # schema is recognised). Helm-templated YAML is excluded — Helm
+      # schema is recognised). Helm-templated YAML is excluded, Helm
       # syntax breaks raw YAML parsing. Uses the mise-managed kubeconform
       # binary on PATH.
       - id: kubeconform

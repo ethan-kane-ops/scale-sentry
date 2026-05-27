@@ -104,7 +104,7 @@ type Report struct {
 
 // Compare derives the throttling report from two consecutive samples and the
 // observed window between them. Counters are unsigned-monotonic and underflow
-// is treated as zero (defensive — should never happen for healthy kernels).
+// is treated as zero (defensive, should never happen for healthy kernels).
 func Compare(before, after Stat, window time.Duration) Report {
 	r := Report{Before: before, After: after, Window: window}
 	r.Periods = saturatingSub(after.NRPeriods, before.NRPeriods)

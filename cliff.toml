@@ -1,4 +1,4 @@
-# git-cliff config — Conventional Commits → CHANGELOG.md
+# git-cliff config, Conventional Commits → CHANGELOG.md
 # Drives `just release`. See https://git-cliff.org for full docs.
 
 [changelog]

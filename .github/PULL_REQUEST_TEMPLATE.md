@@ -6,11 +6,11 @@ Fixes # (issue reference)
 
 ## Type of Change
 
-- [ ] **Bug fix** — non-breaking change which fixes an issue
-- [ ] **New feature** — non-breaking change which adds functionality
-- [ ] **Breaking change** — alters behavior such that existing users would need to update
-- [ ] **Documentation** — additions or changes to docs, examples, or schemas
-- [ ] **Refactor** — restructuring or performance work with no behavior change
+- [ ] **Bug fix**, non-breaking change which fixes an issue
+- [ ] **New feature**, non-breaking change which adds functionality
+- [ ] **Breaking change**, alters behavior such that existing users would need to update
+- [ ] **Documentation**, additions or changes to docs, examples, or schemas
+- [ ] **Refactor**, restructuring or performance work with no behavior change
 
 ## Quality Checklist
 

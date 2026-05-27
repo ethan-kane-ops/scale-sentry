@@ -1,5 +1,5 @@
 // Package chaos plans pod-disruption injection for a ScaleValidation run.
-// It decides whether, when, and which pod to terminate — the actual
+// It decides whether, when, and which pod to terminate, the actual
 // deletion is the controller's job (the controller holds the K8s client).
 //
 // The disruption is deliberately conservative: it refuses to inject unless
@@ -40,8 +40,7 @@ type Decision struct {
 }
 
 // HealthyPods filters pods to those that are Running, Ready, and not
-// already being terminated. Only healthy pods are eligible victims —
-// killing an already-unhealthy pod would not test graceful shutdown.
+// already being terminated. Only healthy pods are eligible victims, // killing an already-unhealthy pod would not test graceful shutdown.
 func HealthyPods(pods []corev1.Pod) []corev1.Pod {
 	healthy := make([]corev1.Pod, 0, len(pods))
 	for _, p := range pods {
@@ -83,7 +82,7 @@ func Plan(cfg Config, loadStart time.Time, pods []corev1.Pod, pick func(n int) i
 
 	if len(healthy) == 0 || len(healthy) < int(cfg.MinReplicasForChaos) {
 		d.SkipReason = fmt.Sprintf(
-			"only %d healthy replica(s); minReplicasForChaos is %d — skipping disruption to avoid total unavailability",
+			"only %d healthy replica(s); minReplicasForChaos is %d, skipping disruption to avoid total unavailability",
 			len(healthy), cfg.MinReplicasForChaos)
 		return d
 	}
