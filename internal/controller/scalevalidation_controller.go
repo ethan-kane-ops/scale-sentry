@@ -81,6 +81,7 @@ type ScaleValidationReconciler struct {
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods/log,verbs=get
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get
 //+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -282,6 +283,12 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 		return r.setPhase(ctx, cr, PhaseError)
 	}
 
+	if terminal, err := r.validateTLSCABundle(ctx, cr); err != nil {
+		return ctrl.Result{}, err
+	} else if terminal {
+		return ctrl.Result{}, nil
+	}
+
 	job := r.buildLoadgenJob(cr, url)
 	if err := controllerutil.SetControllerReference(cr, job, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("set owner reference: %w", err)
@@ -294,6 +301,47 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 	now := metav1.Now()
 	cr.Status.LastRunTime = &now
 	return r.setPhase(ctx, cr, PhaseRunning)
+}
+
+// validateTLSCABundle ensures the CA-bundle ConfigMap referenced by the CR
+// exists and carries the configured key. Returns terminal=true when the CR
+// has been resolved to a terminal Error phase (the caller must stop), or
+// terminal=false with a nil error when no CA bundle is configured or the
+// configured one is valid.
+func (r *ScaleValidationReconciler) validateTLSCABundle(ctx context.Context, cr *v1alpha1.ScaleValidation) (bool, error) {
+	ref := caBundleRef(cr)
+	if ref == nil {
+		return false, nil
+	}
+	var cm corev1.ConfigMap
+	key := types.NamespacedName{Namespace: cr.Namespace, Name: ref.Name}
+	if err := r.Get(ctx, key, &cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, r.failTLSCABundle(ctx, cr,
+				fmt.Sprintf("CA bundle ConfigMap %s/%s not found", cr.Namespace, ref.Name),
+				"create the ConfigMap referenced by spec.target.tls.caBundle.configMapRef before applying the ScaleValidation")
+		}
+		return false, fmt.Errorf("get CA bundle configmap: %w", err)
+	}
+	if _, ok := cm.Data[ref.Key]; !ok {
+		return true, r.failTLSCABundle(ctx, cr,
+			fmt.Sprintf("CA bundle ConfigMap %s/%s missing key %q", cr.Namespace, ref.Name, ref.Key),
+			"set the configured key in the ConfigMap, or update spec.target.tls.caBundle.configMapRef.key")
+	}
+	return false, nil
+}
+
+// failTLSCABundle appends a Critical TLSCABundleMissing diagnostic and
+// transitions the CR to PhaseError.
+func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1alpha1.ScaleValidation, msg, rec string) error {
+	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{
+		Type:           "TLSCABundleMissing",
+		Severity:       "Critical",
+		Message:        msg,
+		Recommendation: rec,
+	})
+	_, err := r.setPhase(ctx, cr, PhaseError)
+	return err
 }
 
 // setPhase persists phase to status.phase via the status subresource.

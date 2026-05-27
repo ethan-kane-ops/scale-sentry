@@ -31,6 +31,11 @@ const (
 	runVolumePath  = "/run/scale-sentry"
 	resultFilePath = runVolumePath + "/result.json"
 
+	// tlsCAVolume is the read-only mount for the user-supplied PEM bundle
+	// (CABundle ConfigMapRef). Mounted only when the CR sets a CA source.
+	tlsCAVolumeName = "scale-sentry-tls-ca"
+	tlsCAMountPath  = "/etc/scale-sentry/tls-ca"
+
 	// jobGracePeriodSeconds gives the observer sidecar time to finalize
 	// (final cgroup scrape, analysis, report) after the load run exits.
 	jobGracePeriodSeconds = 45
@@ -50,7 +55,32 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 	grace := int64(jobGracePeriodSeconds)
 	sidecarRestart := corev1.ContainerRestartPolicyAlways
 	labels := map[string]string{loadgenForLabel: cr.Name}
-	mounts := []corev1.VolumeMount{{Name: runVolumeName, MountPath: runVolumePath}}
+
+	loadgenMounts := []corev1.VolumeMount{{Name: runVolumeName, MountPath: runVolumePath}}
+	observerMounts := []corev1.VolumeMount{{Name: runVolumeName, MountPath: runVolumePath}}
+	volumes := []corev1.Volume{{
+		Name:         runVolumeName,
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}}
+
+	caBundlePath := ""
+	if ca := caBundleRef(cr); ca != nil {
+		caBundlePath = tlsCAMountPath + "/" + ca.Key
+		volumes = append(volumes, corev1.Volume{
+			Name: tlsCAVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: ca.Name},
+					Items: []corev1.KeyToPath{
+						{Key: ca.Key, Path: ca.Key},
+					},
+				},
+			},
+		})
+		loadgenMounts = append(loadgenMounts, corev1.VolumeMount{
+			Name: tlsCAVolumeName, MountPath: tlsCAMountPath, ReadOnly: true,
+		})
+	}
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -66,10 +96,7 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 					RestartPolicy:                 corev1.RestartPolicyNever,
 					ServiceAccountName:            r.ObserverServiceAccount,
 					TerminationGracePeriodSeconds: &grace,
-					Volumes: []corev1.Volume{{
-						Name:         runVolumeName,
-						VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-					}},
+					Volumes:                       volumes,
 					// The observer is a native sidecar, a restartPolicy:
 					// Always init container. It starts before the load
 					// generator and is SIGTERM'd once loadgen exits, which
@@ -79,13 +106,13 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 						Image:         r.ObserverImage,
 						Args:          observerArgs(cr),
 						RestartPolicy: &sidecarRestart,
-						VolumeMounts:  mounts,
+						VolumeMounts:  observerMounts,
 					}},
 					Containers: []corev1.Container{{
 						Name:         loadgenContainerName,
 						Image:        r.LoadgenImage,
-						Args:         loadgenArgs(cr, url),
-						VolumeMounts: mounts,
+						Args:         loadgenArgs(cr, url, caBundlePath),
+						VolumeMounts: loadgenMounts,
 					}},
 				},
 			},
@@ -94,9 +121,10 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 }
 
 // loadgenArgs renders the loadgen container flags. The loadgen binary is
-// the image entrypoint, so the subcommand name is omitted.
-func loadgenArgs(cr *v1alpha1.ScaleValidation, url string) []string {
-	return []string{
+// the image entrypoint, so the subcommand name is omitted. caBundlePath is
+// non-empty only when the CR's TLS block references a CA ConfigMap.
+func loadgenArgs(cr *v1alpha1.ScaleValidation, url, caBundlePath string) []string {
+	args := []string{
 		"--url", url,
 		"--rps", strconv.Itoa(int(cr.Spec.Load.BaseRPS)),
 		"--duration", cr.Spec.SLA.Duration.String(),
@@ -105,6 +133,23 @@ func loadgenArgs(cr *v1alpha1.ScaleValidation, url string) []string {
 		"--network-path", cr.Spec.Target.NetworkPath,
 		"--result-file", resultFilePath,
 	}
+	if tls := cr.Spec.Target.TLS; tls != nil {
+		if tls.InsecureSkipVerify {
+			args = append(args, "--tls-insecure-skip-verify")
+		}
+	}
+	if caBundlePath != "" {
+		args = append(args, "--tls-ca-bundle", caBundlePath)
+	}
+	return args
+}
+
+// caBundleRef returns the ConfigMapKeyRef from the CR's TLS spec, or nil.
+func caBundleRef(cr *v1alpha1.ScaleValidation) *v1alpha1.ConfigMapKeyRef {
+	if cr.Spec.Target.TLS == nil || cr.Spec.Target.TLS.CABundle == nil {
+		return nil
+	}
+	return &cr.Spec.Target.TLS.CABundle.ConfigMapRef
 }
 
 // observerArgs renders the observer sidecar flags.

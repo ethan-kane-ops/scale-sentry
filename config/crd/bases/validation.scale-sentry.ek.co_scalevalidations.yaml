@@ -129,6 +129,45 @@ spec:
                     description: Port is the target port number.
                     format: int32
                     type: integer
+                  tls:
+                    description: |-
+                      TLS configures HTTPS verification for the loadgen client. Only
+                      applies when the resolved target URL uses the https scheme.
+                    properties:
+                      caBundle:
+                        description: |-
+                          CABundle points to a ConfigMap key containing one or more
+                          PEM-encoded certificates trusted by the loadgen client.
+                        properties:
+                          configMapRef:
+                            description: |-
+                              ConfigMapRef selects a key in a ConfigMap in the same namespace as
+                              the ScaleValidation.
+                            properties:
+                              key:
+                                description: Key within the ConfigMap data block holding
+                                  the PEM bundle.
+                                type: string
+                              name:
+                                description: Name of the ConfigMap.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        required:
+                        - configMapRef
+                        type: object
+                      insecureSkipVerify:
+                        default: false
+                        description: |-
+                          InsecureSkipVerify disables certificate verification entirely.
+                          Use only for dev / CI clusters; production runs should pin a CA.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: insecureSkipVerify and caBundle are mutually exclusive
+                      rule: '!(self.insecureSkipVerify == true && has(self.caBundle))'
                 required:
                 - mode
                 - networkPath

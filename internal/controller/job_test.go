@@ -166,7 +166,7 @@ func TestResolveTargetURL_AutoDiscoverProbeMissing(t *testing.T) {
 }
 
 func TestLoadgenArgs(t *testing.T) {
-	args := loadgenArgs(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
+	args := loadgenArgs(testCR(nil), "http://app.demo.svc.cluster.local:8080/", "")
 	want := map[string]string{
 		"--url":             "http://app.demo.svc.cluster.local:8080/",
 		"--rps":             "150",
@@ -177,6 +177,36 @@ func TestLoadgenArgs(t *testing.T) {
 		"--result-file":     resultFilePath,
 	}
 	assertFlags(t, args, want)
+	if slices.Contains(args, "--tls-insecure-skip-verify") {
+		t.Errorf("unexpected --tls-insecure-skip-verify in default args: %v", args)
+	}
+	if slices.Contains(args, "--tls-ca-bundle") {
+		t.Errorf("unexpected --tls-ca-bundle in default args: %v", args)
+	}
+}
+
+func TestLoadgenArgs_TLSInsecureSkipVerify(t *testing.T) {
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{InsecureSkipVerify: true}
+	})
+	args := loadgenArgs(cr, "https://app.demo.svc.cluster.local:8443/", "")
+	if !slices.Contains(args, "--tls-insecure-skip-verify") {
+		t.Errorf("missing --tls-insecure-skip-verify in args: %v", args)
+	}
+}
+
+func TestLoadgenArgs_TLSCABundle(t *testing.T) {
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
+			CABundle: &v1alpha1.CABundleSource{
+				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+			},
+		}
+	})
+	args := loadgenArgs(cr, "https://app.demo.svc.cluster.local:8443/", "/etc/scale-sentry/tls-ca/ca.crt")
+	assertFlags(t, args, map[string]string{
+		"--tls-ca-bundle": "/etc/scale-sentry/tls-ca/ca.crt",
+	})
 }
 
 func TestObserverArgs(t *testing.T) {
@@ -255,6 +285,66 @@ func TestBuildLoadgenJob(t *testing.T) {
 	}
 	if len(pod.Volumes) != 1 || pod.Volumes[0].EmptyDir == nil {
 		t.Errorf("want one emptyDir volume, got %+v", pod.Volumes)
+	}
+}
+
+func TestBuildLoadgenJob_TLSCABundleMount(t *testing.T) {
+	r := &ScaleValidationReconciler{
+		LoadgenImage:           "registry.test/loadgen:v1",
+		ObserverImage:          "registry.test/observer:v1",
+		ObserverServiceAccount: "scale-sentry-observer",
+	}
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
+			CABundle: &v1alpha1.CABundleSource{
+				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+			},
+		}
+	})
+	job := r.buildLoadgenJob(cr, "https://app.demo.svc.cluster.local:8443/")
+
+	pod := job.Spec.Template.Spec
+	var caVol *corev1.Volume
+	for i := range pod.Volumes {
+		if pod.Volumes[i].Name == tlsCAVolumeName {
+			caVol = &pod.Volumes[i]
+			break
+		}
+	}
+	if caVol == nil {
+		t.Fatalf("missing %s volume on job pod: %+v", tlsCAVolumeName, pod.Volumes)
+	}
+	if caVol.ConfigMap == nil || caVol.ConfigMap.Name != "internal-ca" {
+		t.Errorf("CA volume ConfigMap source = %+v, want name=internal-ca", caVol.ConfigMap)
+	}
+	if len(caVol.ConfigMap.Items) != 1 || caVol.ConfigMap.Items[0].Key != "ca.crt" {
+		t.Errorf("CA volume items = %+v, want one item with key ca.crt", caVol.ConfigMap.Items)
+	}
+
+	loadgenMounts := pod.Containers[0].VolumeMounts
+	var caMount *corev1.VolumeMount
+	for i := range loadgenMounts {
+		if loadgenMounts[i].Name == tlsCAVolumeName {
+			caMount = &loadgenMounts[i]
+			break
+		}
+	}
+	if caMount == nil || caMount.MountPath != tlsCAMountPath || !caMount.ReadOnly {
+		t.Errorf("loadgen CA mount = %+v, want readonly at %s", caMount, tlsCAMountPath)
+	}
+
+	args := pod.Containers[0].Args
+	wantPath := tlsCAMountPath + "/ca.crt"
+	if i := slices.Index(args, "--tls-ca-bundle"); i < 0 || i+1 >= len(args) || args[i+1] != wantPath {
+		t.Errorf("--tls-ca-bundle flag = %v, want value %q", args, wantPath)
+	}
+
+	// The observer sidecar must not receive the CA mount; the bundle is a
+	// loadgen-only concern.
+	for _, m := range pod.InitContainers[0].VolumeMounts {
+		if m.Name == tlsCAVolumeName {
+			t.Errorf("observer sidecar should not mount the CA bundle: %+v", m)
+		}
 	}
 }
 
