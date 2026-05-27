@@ -46,3 +46,21 @@ serviceAccount:
 # operator cannot function without it.
 rbac:
   create: true
+
+# metrics controls the Prometheus scrape surface for the controller.
+#   service: a ClusterIP fronting the controller's :8080/metrics port.
+#   serviceMonitor: a prometheus-operator ServiceMonitor pointed at it.
+# Both are off by default so the chart is self-contained on clusters
+# without prometheus-operator installed.
+metrics:
+  service:
+    enabled: false
+    port: 8080
+    annotations: {}
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    relabelings: []
+    metricRelabelings: []
