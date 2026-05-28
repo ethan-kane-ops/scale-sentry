@@ -20,9 +20,20 @@ controller:
       memory: 128Mi
   # Leader election is enabled by default so multi-replica deployments are
   # safe; single-replica deployments still work, just with a small extra
-  # lease overhead.
+  # lease overhead. For production HA set replicaCount to 2+ (see NOTES.txt):
+  # standby replicas take over reconciliation within the lease-renew window
+  # (~15s) if the leader pod dies.
   leaderElect: true
   devLogging: false
+  # topologySpreadConstraints and the PodDisruptionBudget only render when
+  # replicaCount > 1 (they are meaningless for a single replica).
+  # Default: prefer spreading replicas across zones.
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+  podDisruptionBudget:
+    minAvailable: 1
 
 # Images the controller injects into the loadgen Job pod spec. Empty means
 # "compose default GHCR path tagged at .Chart.AppVersion" in the deployment

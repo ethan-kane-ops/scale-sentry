@@ -18,6 +18,18 @@ spec:
         app.kubernetes.io/component: controller
     spec:
       serviceAccountName: {{ include "scale-sentry.controllerServiceAccountName" . }}
+      {{- if and (gt (int .Values.controller.replicaCount) 1) .Values.controller.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range .Values.controller.topologySpreadConstraints }}
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: {{ .topologyKey }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "scale-sentry.selectorLabels" $ | nindent 14 }}
+              app.kubernetes.io/component: controller
+        {{- end }}
+      {{- end }}
       containers:
       - name: controller
         image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
@@ -27,9 +39,7 @@ spec:
         - --loadgen-image={{ .Values.loadgenImage | default (printf "ghcr.io/ethan-kane-ops/scale-sentry-loadgen:%s" .Chart.AppVersion) }}
         - --observer-image={{ .Values.observerImage | default (printf "ghcr.io/ethan-kane-ops/scale-sentry-observer:%s" .Chart.AppVersion) }}
         - --observer-service-account={{ .Values.observerServiceAccount }}
-        {{- if .Values.controller.leaderElect }}
-        - --leader-elect
-        {{- end }}
+        - --leader-elect={{ .Values.controller.leaderElect }}
         {{- if .Values.controller.devLogging }}
         - --dev-logging
         {{- end }}
