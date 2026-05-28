@@ -21,6 +21,7 @@ const (
 	defaultLoadgenImage         = "scale-sentry-loadgen:latest"
 	defaultObserverImage        = "scale-sentry-observer:latest"
 	defaultObserverServiceAccnt = "scale-sentry-observer"
+	leaderElectionID            = "scale-sentry-leader"
 )
 
 func init() {
@@ -31,6 +32,7 @@ type controllerOpts struct {
 	metricsAddr            string
 	probeAddr              string
 	leaderElect            bool
+	leaderElectNamespace   string
 	loadgenImage           string
 	observerImage          string
 	observerServiceAccount string
@@ -49,7 +51,8 @@ func newControllerCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&o.metricsAddr, "metrics-bind-address", ":8080", "address the metrics endpoint binds to")
 	f.StringVar(&o.probeAddr, "health-probe-bind-address", ":8081", "address the health probe endpoint binds to")
-	f.BoolVar(&o.leaderElect, "leader-elect", false, "enable leader election for controller manager")
+	f.BoolVar(&o.leaderElect, "leader-elect", true, "enable leader election so only one replica reconciles at a time; set false for single-replica/local dev")
+	f.StringVar(&o.leaderElectNamespace, "leader-elect-namespace", "", "namespace holding the leader-election Lease (empty = in-cluster pod namespace)")
 	f.StringVar(&o.loadgenImage, "loadgen-image", defaultLoadgenImage, "container image for the loadgen container")
 	f.StringVar(&o.observerImage, "observer-image", defaultObserverImage, "container image for the observer sidecar")
 	f.StringVar(&o.observerServiceAccount, "observer-service-account", defaultObserverServiceAccnt, "ServiceAccount the loadgen Job pod runs as")
@@ -67,11 +70,12 @@ func runController(o controllerOpts) error {
 	restCfg := ctrl.GetConfigOrDie()
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: o.metricsAddr},
-		HealthProbeBindAddress: o.probeAddr,
-		LeaderElection:         o.leaderElect,
-		LeaderElectionID:       "scale-sentry.validation.scale-sentry.ek.co",
+		Scheme:                  scheme,
+		Metrics:                 metricsserver.Options{BindAddress: o.metricsAddr},
+		HealthProbeBindAddress:  o.probeAddr,
+		LeaderElection:          o.leaderElect,
+		LeaderElectionID:        leaderElectionID,
+		LeaderElectionNamespace: o.leaderElectNamespace,
 	})
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)

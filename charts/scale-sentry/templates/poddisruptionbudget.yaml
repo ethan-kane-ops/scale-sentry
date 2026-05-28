@@ -1,0 +1,20 @@
+{{- if and (gt (int .Values.controller.replicaCount) 1) .Values.controller.podDisruptionBudget -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "scale-sentry.fullname" . }}-controller
+  labels:
+    {{- include "scale-sentry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  {{- with .Values.controller.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ . }}
+  {{- end }}
+  {{- with .Values.controller.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "scale-sentry.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+{{- end -}}

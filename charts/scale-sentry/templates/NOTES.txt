@@ -18,3 +18,13 @@ Next steps:
 
 Note: ScaleValidations in namespaces other than "{{ .Release.Namespace }}" need
 the observer Role + RoleBinding (ServiceAccount "{{ .Values.observerServiceAccount }}") applied there too.
+
+{{ if le (int .Values.controller.replicaCount) 1 -}}
+HA: this release runs a single controller replica (a SPOF). For production,
+set controller.replicaCount to 2+ . Leader election is on by default, so only
+one replica reconciles; standbys take over within the lease-renew window (~15s)
+if the leader dies. replicaCount > 1 also enables a PodDisruptionBudget and
+zone topology spread.
+{{- else -}}
+HA: running {{ .Values.controller.replicaCount }} controller replicas with leader election{{ if not .Values.controller.leaderElect }} DISABLED (unsafe with >1 replica, set controller.leaderElect=true){{ end }}. A PodDisruptionBudget and zone topology spread are active.
+{{- end }}
