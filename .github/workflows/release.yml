@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   images:
@@ -45,6 +46,7 @@ jobs:
             type=raw,value=latest
 
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           file: Dockerfile
@@ -56,6 +58,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
   chart:
     name: helm chart (OCI)
@@ -90,6 +100,17 @@ jobs:
             --app-version "${{ steps.ver.outputs.version }}"
 
       - name: Push chart to GHCR OCI
+        id: push
         run: |
           helm push "scale-sentry-${{ steps.ver.outputs.version }}.tgz" \
-            "oci://ghcr.io/${{ github.repository_owner }}/charts"
+            "oci://ghcr.io/${{ github.repository_owner }}/charts" 2>&1 | tee push.log
+          digest=$(awk '/^Digest:/ {print $2}' push.log)
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign chart (keyless)
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          CHART: ghcr.io/${{ github.repository_owner }}/charts/scale-sentry
+        run: cosign sign --yes "${CHART}@${DIGEST}"

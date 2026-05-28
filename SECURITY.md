@@ -25,6 +25,15 @@ When submitting a report, please include:
 
 Reporters will be credited in the release notes for the fix unless they request anonymity.
 
+## Signed Releases
+
+From v0.1.1 onward, all published container images and the OCI Helm chart are
+signed with [cosign](https://docs.sigstore.dev/) keyless signing. The signing
+identity is the GitHub Actions OIDC token bound to this repository's release
+workflow (no long-lived keys). Verify provenance with `cosign verify`, see the
+[Install](./README.md#verifying-signatures) section of the README for the exact
+command.
+
 ## Supported Versions
 
 Only the latest minor release line receives security updates.
