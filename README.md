@@ -6,6 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ethan-kane-ops/scale-sentry)](https://goreportcard.com/report/github.com/ethan-kane-ops/scale-sentry)
 [![Go Reference](https://pkg.go.dev/badge/github.com/ethan-kane-ops/scale-sentry.svg)](https://pkg.go.dev/github.com/ethan-kane-ops/scale-sentry)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-%E2%89%A5%201.26-blue.svg)](https://kubernetes.io)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/ethan-kane-ops/scale-sentry/badge)](https://securityscorecards.dev/viewer/?uri=github.com/ethan-kane-ops/scale-sentry)
 
 **Scale Sentry** validates Kubernetes auto-scaling behavior under load. It generates dynamic traffic to a target Deployment, tracks HPA scale-up latency against an SLA, and correlates HTTP errors with EndpointSlice updates to surface **cold-start traffic leakage**, errors served the instant a new pod is declared Ready.
 
