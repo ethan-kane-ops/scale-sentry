@@ -10,6 +10,9 @@ crd_ref_docs_version := "v0.3.0"
 # Kind cluster name used by test-e2e
 kind_cluster := "scale-sentry-e2e"
 
+# helm-docs version for the chart README
+helm_docs_version := "v1.14.2"
+
 default:
     @just --list
 
@@ -85,6 +88,11 @@ docker-build:
     DOCKER_BUILDKIT=1 docker build --build-arg CMD=scale-sentry -t scale-sentry:{{image_tag}} .
     DOCKER_BUILDKIT=1 docker build --build-arg CMD=loadgen      -t scale-sentry-loadgen:{{image_tag}} .
     DOCKER_BUILDKIT=1 docker build --build-arg CMD=observer     -t scale-sentry-observer:{{image_tag}} .
+
+# Regenerate the chart README from Chart.yaml + values.yaml (# -- comments)
+chart-docs:
+    go run github.com/norwoodj/helm-docs/cmd/helm-docs@{{helm_docs_version}} \
+        --chart-search-root=charts
 
 # Package the Helm chart into ./dist/scale-sentry-*.tgz
 helm-package:
