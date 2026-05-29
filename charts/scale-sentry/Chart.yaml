@@ -18,3 +18,11 @@ keywords:
 maintainers:
   - name: ethan-kane-ops
     url: https://github.com/ethan-kane-ops
+annotations:
+  artifacthub.io/operator: "true"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/ethan-kane-ops/scale-sentry
+    - name: documentation
+      url: https://ethan-kane-ops.github.io/scale-sentry/

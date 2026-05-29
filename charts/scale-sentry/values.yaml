@@ -1,77 +1,79 @@
 # Default values for the scale-sentry chart.
 
+# -- Override the chart name used in resource names
 nameOverride: ""
+# -- Override the full release name
 fullnameOverride: ""
 
 controller:
+  # -- Number of controller replicas; >1 enables HA (renders a PodDisruptionBudget + topology spread)
   replicaCount: 1
   image:
+    # -- Controller image repository
     repository: ghcr.io/ethan-kane-ops/scale-sentry
-    # Empty tag falls back to .Chart.AppVersion so releases only bump Chart.yaml.
+    # -- Controller image tag; empty falls back to .Chart.AppVersion so releases only bump Chart.yaml
     tag: ""
+    # -- Controller image pull policy
     pullPolicy: IfNotPresent
-  # No CPU limits by design, let the kernel scheduler arbitrate. Memory
-  # is the only hard cap.
+  # -- Controller resource requests/limits. No CPU limit by design (let the kernel scheduler arbitrate); memory is the only hard cap.
   resources:
     limits:
       memory: 256Mi
     requests:
       cpu: 100m
       memory: 128Mi
-  # Leader election is enabled by default so multi-replica deployments are
-  # safe; single-replica deployments still work, just with a small extra
-  # lease overhead. For production HA set replicaCount to 2+ (see NOTES.txt):
-  # standby replicas take over reconciliation within the lease-renew window
-  # (~15s) if the leader pod dies.
+  # -- Enable leader election so multi-replica deployments are safe. A standby takes over within the lease-renew window (~15s) if the leader dies.
   leaderElect: true
+  # -- Verbose development logging
   devLogging: false
-  # topologySpreadConstraints and the PodDisruptionBudget only render when
-  # replicaCount > 1 (they are meaningless for a single replica).
-  # Default: prefer spreading replicas across zones.
+  # -- Topology spread constraints, rendered only when replicaCount > 1. Default: prefer spreading replicas across zones.
   topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: topology.kubernetes.io/zone
     whenUnsatisfiable: ScheduleAnyway
+  # -- PodDisruptionBudget, rendered only when replicaCount > 1
   podDisruptionBudget:
     minAvailable: 1
 
-# Images the controller injects into the loadgen Job pod spec. Empty means
-# "compose default GHCR path tagged at .Chart.AppVersion" in the deployment
-# template, override either field to pin a specific image.
+# -- Loadgen Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion.
 loadgenImage: ""
+# -- Observer Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion.
 observerImage: ""
 
-# Observer ServiceAccount name. Fixed at "scale-sentry-observer" because the
-# observer Role + RoleBinding are symlinked from config/rbac/observer_role.yaml
-# (zero-drift source of truth) and hardcode that name. The chart provisions
-# the SA + Role + RoleBinding in its release namespace; CRs created in OTHER
-# namespaces need the observer RBAC applied there separately.
+# -- Observer ServiceAccount name. Fixed at "scale-sentry-observer" because the observer Role + RoleBinding are symlinked from config/rbac/observer_role.yaml and hardcode that name. CRs in other namespaces need the observer RBAC applied there separately.
 observerServiceAccount: scale-sentry-observer
 
 serviceAccount:
+  # -- Create the controller ServiceAccount
   create: true
+  # -- Annotations to add to the controller ServiceAccount
   annotations: {}
 
-# rbac.create gates the controller manager ClusterRole + binding only. The
-# observer RBAC (symlinked from config/) is always installed because the
-# operator cannot function without it.
+# -- rbac.create gates the controller manager ClusterRole + binding only. The observer RBAC (symlinked from config/) is always installed because the operator cannot function without it.
 rbac:
   create: true
 
-# metrics controls the Prometheus scrape surface for the controller.
-#   service: a ClusterIP fronting the controller's :8080/metrics port.
-#   serviceMonitor: a prometheus-operator ServiceMonitor pointed at it.
-# Both are off by default so the chart is self-contained on clusters
-# without prometheus-operator installed.
+# metrics controls the Prometheus scrape surface for the controller. Both gates
+# are off by default so the chart is self-contained on clusters without
+# prometheus-operator installed.
 metrics:
   service:
+    # -- Create a ClusterIP Service fronting the controller's :8080/metrics port
     enabled: false
+    # -- Metrics Service port
     port: 8080
+    # -- Annotations to add to the metrics Service
     annotations: {}
   serviceMonitor:
+    # -- Create a prometheus-operator ServiceMonitor pointed at the metrics Service
     enabled: false
+    # -- Scrape interval
     interval: 30s
+    # -- Scrape timeout
     scrapeTimeout: 10s
+    # -- Extra labels for the ServiceMonitor (e.g. to match a Prometheus selector)
     labels: {}
+    # -- ServiceMonitor relabelings
     relabelings: []
+    # -- ServiceMonitor metric relabelings
     metricRelabelings: []
