@@ -48,6 +48,11 @@ test:
 test-race:
     go test -race ./...
 
+# Run unit tests with coverage, writing coverage.out (consumed by CI/codecov)
+cover:
+    go test -covermode=atomic -coverprofile=coverage.out ./...
+    go tool cover -func=coverage.out | tail -1
+
 # Run the envtest integration suite (downloads apiserver/etcd assets on first run)
 test-integration: tools
     #!/usr/bin/env bash
