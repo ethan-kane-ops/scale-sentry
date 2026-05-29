@@ -4,6 +4,9 @@ controller_gen_version := "v0.16.5"
 # Container image tag for local builds (dev workflow + E2E)
 image_tag := "dev"
 
+# crd-ref-docs version for the API reference page
+crd_ref_docs_version := "v0.3.0"
+
 # Kind cluster name used by test-e2e
 kind_cluster := "scale-sentry-e2e"
 
@@ -197,3 +200,19 @@ release bump="auto":
     git push origin "refs/tags/$new_ver"
     notes=$(git cliff --tag "$new_ver" --latest --strip header)
     gh release create "$new_ver" --title "$new_ver" --notes "$notes" --verify-tag
+
+# Regenerate the CRD API reference page from kubebuilder markers (not committed)
+docs-api:
+    go run github.com/elastic/crd-ref-docs@{{crd_ref_docs_version}} \
+        --source-path=./api/v1alpha1 \
+        --config=.crd-ref-docs.yaml \
+        --renderer=markdown \
+        --output-path=docs/reference/api.md
+
+# Serve the docs site locally with live reload (regenerates API ref first)
+docs-serve: docs-api
+    uv run --with-requirements docs/requirements.txt mkdocs serve
+
+# Build the static docs site into ./site (regenerates API ref first)
+docs-build: docs-api
+    uv run --with-requirements docs/requirements.txt mkdocs build --strict

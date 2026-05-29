@@ -1,0 +1,16 @@
+processor:
+  ignoreTypes:
+    - "(ScaleValidation)List$"
+  ignoreFields:
+    - "TypeMeta$"
+    - "metadata$"
+
+render:
+  kubernetesVersion: "1.34"
+  knownTypes:
+    - name: ObjectMeta
+      package: k8s.io/apimachinery/pkg/apis/meta/v1
+      link: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta
+    - name: Duration
+      package: k8s.io/apimachinery/pkg/apis/meta/v1
+      link: https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Duration
