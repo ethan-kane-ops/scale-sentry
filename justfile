@@ -216,6 +216,7 @@ release bump="auto":
 
 # Regenerate the CRD API reference page from kubebuilder markers (not committed)
 docs-api:
+    mkdir -p docs/reference
     go run github.com/elastic/crd-ref-docs@{{crd_ref_docs_version}} \
         --source-path=./api/v1alpha1 \
         --config=.crd-ref-docs.yaml \
