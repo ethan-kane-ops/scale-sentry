@@ -1,0 +1,12 @@
+# Normalize line endings to LF for text files.
+* text=auto eol=lf
+
+# Generated files: collapse in diffs and exclude from language stats.
+**/zz_generated.deepcopy.go linguist-generated=true
+config/crd/bases/*.yaml linguist-generated=true
+charts/scale-sentry/README.md linguist-generated=true
+CHANGELOG.md linguist-generated=true
+go.sum linguist-generated=true
+
+# Documentation should not count toward language stats.
+docs/** linguist-documentation=true
