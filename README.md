@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ethan-kane-ops/scale-sentry)](https://goreportcard.com/report/github.com/ethan-kane-ops/scale-sentry)
 [![Go Reference](https://pkg.go.dev/badge/github.com/ethan-kane-ops/scale-sentry.svg)](https://pkg.go.dev/github.com/ethan-kane-ops/scale-sentry)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-%E2%89%A5%201.26-blue.svg)](https://kubernetes.io)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-%E2%89%A5%201.34-blue.svg)](https://kubernetes.io)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/ethan-kane-ops/scale-sentry/badge)](https://securityscorecards.dev/viewer/?uri=github.com/ethan-kane-ops/scale-sentry)
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://ethan-kane-ops.github.io/scale-sentry/)
 

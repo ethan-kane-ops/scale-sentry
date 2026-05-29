@@ -6,11 +6,11 @@ processor:
     - "metadata$"
 
 render:
-  kubernetesVersion: "1.26"
+  kubernetesVersion: "1.34"
   knownTypes:
     - name: ObjectMeta
       package: k8s.io/apimachinery/pkg/apis/meta/v1
-      link: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#objectmeta-v1-meta
+      link: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta
     - name: Duration
       package: k8s.io/apimachinery/pkg/apis/meta/v1
       link: https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Duration
