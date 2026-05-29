@@ -39,7 +39,7 @@ body:
     attributes:
       label: Environment
       description: Kubernetes distribution + version, Go version, scale-sentry version.
-      placeholder: e.g. Kind v0.22.0, Kubernetes v1.31.2, Go 1.26.3, scale-sentry v0.1.0
+      placeholder: e.g. Kind v0.22.0, Kubernetes v1.34.0, Go 1.26.3, scale-sentry v0.1.0
     validations:
       required: true
   - type: textarea
