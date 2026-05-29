@@ -149,6 +149,15 @@ cosign verify ghcr.io/ethan-kane-ops/scale-sentry:v0.1.1 \
 The same command verifies the loadgen and observer images, and the chart at
 `ghcr.io/ethan-kane-ops/charts/scale-sentry`.
 
+Each image and the chart also carry a [SLSA build provenance](https://slsa.dev/)
+attestation and an SBOM, published to the registry by the release workflow.
+Verify the provenance with the GitHub CLI:
+
+```bash
+gh attestation verify oci://ghcr.io/ethan-kane-ops/scale-sentry:v0.1.1 \
+  --repo ethan-kane-ops/scale-sentry
+```
+
 ### High availability
 
 The controller uses `controller-runtime` leader election (a
