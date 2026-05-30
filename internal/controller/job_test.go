@@ -288,6 +288,51 @@ func TestBuildLoadgenJob(t *testing.T) {
 	}
 }
 
+// TestBuildLoadgenJob_PSARestrictedHardening asserts the loadgen Job's pod
+// and container specs satisfy the Kubernetes PodSecurityAdmission Restricted
+// profile, so the chart works on clusters that enforce it namespace-wide.
+func TestBuildLoadgenJob_PSARestrictedHardening(t *testing.T) {
+	r := &ScaleValidationReconciler{
+		LoadgenImage:           "registry.test/loadgen:v1",
+		ObserverImage:          "registry.test/observer:v1",
+		ObserverServiceAccount: "scale-sentry-observer",
+	}
+	job := r.buildLoadgenJob(testCR(nil), "http://h:80/")
+	pod := job.Spec.Template.Spec
+
+	if pod.SecurityContext == nil {
+		t.Fatalf("pod SecurityContext must be set for PSA Restricted")
+	}
+	if pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot {
+		t.Errorf("pod RunAsNonRoot must be true")
+	}
+	if sp := pod.SecurityContext.SeccompProfile; sp == nil || sp.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Errorf("pod SeccompProfile must be RuntimeDefault, got %+v", sp)
+	}
+
+	for _, c := range append(append([]corev1.Container{}, pod.InitContainers...), pod.Containers...) {
+		sc := c.SecurityContext
+		if sc == nil {
+			t.Fatalf("container %s missing SecurityContext", c.Name)
+		}
+		if sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {
+			t.Errorf("container %s AllowPrivilegeEscalation must be false", c.Name)
+		}
+		if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot {
+			t.Errorf("container %s RunAsNonRoot must be true", c.Name)
+		}
+		if sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem {
+			t.Errorf("container %s ReadOnlyRootFilesystem must be true", c.Name)
+		}
+		if sc.Capabilities == nil || !slices.Contains(sc.Capabilities.Drop, corev1.Capability("ALL")) {
+			t.Errorf("container %s must drop ALL capabilities, got %+v", c.Name, sc.Capabilities)
+		}
+		if sp := sc.SeccompProfile; sp == nil || sp.Type != corev1.SeccompProfileTypeRuntimeDefault {
+			t.Errorf("container %s SeccompProfile must be RuntimeDefault, got %+v", c.Name, sp)
+		}
+	}
+}
+
 func TestBuildLoadgenJob_TLSCABundleMount(t *testing.T) {
 	r := &ScaleValidationReconciler{
 		LoadgenImage:           "registry.test/loadgen:v1",

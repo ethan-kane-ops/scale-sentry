@@ -34,6 +34,20 @@ controller:
   # -- PodDisruptionBudget, rendered only when replicaCount > 1
   podDisruptionBudget:
     minAvailable: 1
+  # -- Pod-level securityContext for the controller. Default satisfies PodSecurityAdmission "Restricted" (runAsNonRoot, seccomp RuntimeDefault).
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Container-level securityContext for the controller. Default satisfies PodSecurityAdmission "Restricted" (drop ALL caps, no privilege escalation, read-only root fs).
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    capabilities:
+      drop: [ALL]
+    seccompProfile:
+      type: RuntimeDefault
 
 # -- Loadgen Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion.
 loadgenImage: ""

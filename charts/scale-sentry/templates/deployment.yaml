@@ -18,6 +18,10 @@ spec:
         app.kubernetes.io/component: controller
     spec:
       serviceAccountName: {{ include "scale-sentry.controllerServiceAccountName" . }}
+      {{- with .Values.controller.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if and (gt (int .Values.controller.replicaCount) 1) .Values.controller.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- range .Values.controller.topologySpreadConstraints }}
@@ -34,6 +38,10 @@ spec:
       - name: controller
         image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+        {{- with .Values.controller.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         args:
         - controller
         - --loadgen-image={{ .Values.loadgenImage | default (printf "ghcr.io/ethan-kane-ops/scale-sentry-loadgen:%s" .Chart.AppVersion) }}
