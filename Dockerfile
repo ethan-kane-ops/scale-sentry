@@ -17,5 +17,5 @@ ARG CMD=scale-sentry
 LABEL org.opencontainers.image.source="https://github.com/ethan-kane-ops/scale-sentry"
 LABEL org.opencontainers.image.description="scale-sentry: ${CMD}"
 COPY --from=build /out/entrypoint /entrypoint
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/entrypoint"]

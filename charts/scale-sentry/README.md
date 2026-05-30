@@ -42,8 +42,10 @@ for verification steps.
 | controller.image.tag | string | `""` | Controller image tag; empty falls back to .Chart.AppVersion so releases only bump Chart.yaml |
 | controller.leaderElect | bool | `true` | Enable leader election so multi-replica deployments are safe. A standby takes over within the lease-renew window (~15s) if the leader dies. |
 | controller.podDisruptionBudget | object | `{"minAvailable":1}` | PodDisruptionBudget, rendered only when replicaCount > 1 |
+| controller.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod-level securityContext for the controller. Default satisfies PodSecurityAdmission "Restricted" (runAsNonRoot, seccomp RuntimeDefault). |
 | controller.replicaCount | int | `1` | Number of controller replicas; >1 enables HA (renders a PodDisruptionBudget + topology spread) |
 | controller.resources | object | `{"limits":{"memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Controller resource requests/limits. No CPU limit by design (let the kernel scheduler arbitrate); memory is the only hard cap. |
+| controller.securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Container-level securityContext for the controller. Default satisfies PodSecurityAdmission "Restricted" (drop ALL caps, no privilege escalation, read-only root fs). |
 | controller.topologySpreadConstraints | list | `[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway"}]` | Topology spread constraints, rendered only when replicaCount > 1. Default: prefer spreading replicas across zones. |
 | fullnameOverride | string | `""` | Override the full release name |
 | loadgenImage | string | `""` | Loadgen Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion. |

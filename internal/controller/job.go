@@ -58,6 +58,8 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 
 	loadgenMounts := []corev1.VolumeMount{{Name: runVolumeName, MountPath: runVolumePath}}
 	observerMounts := []corev1.VolumeMount{{Name: runVolumeName, MountPath: runVolumePath}}
+	containerSC := restrictedContainerSecurityContext()
+	podSC := restrictedPodSecurityContext()
 	volumes := []corev1.Volume{{
 		Name:         runVolumeName,
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
@@ -96,23 +98,26 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 					RestartPolicy:                 corev1.RestartPolicyNever,
 					ServiceAccountName:            r.ObserverServiceAccount,
 					TerminationGracePeriodSeconds: &grace,
+					SecurityContext:               podSC,
 					Volumes:                       volumes,
 					// The observer is a native sidecar, a restartPolicy:
 					// Always init container. It starts before the load
 					// generator and is SIGTERM'd once loadgen exits, which
 					// is its signal to finalize and print the Report.
 					InitContainers: []corev1.Container{{
-						Name:          observerContainerName,
-						Image:         r.ObserverImage,
-						Args:          observerArgs(cr),
-						RestartPolicy: &sidecarRestart,
-						VolumeMounts:  observerMounts,
+						Name:            observerContainerName,
+						Image:           r.ObserverImage,
+						Args:            observerArgs(cr),
+						RestartPolicy:   &sidecarRestart,
+						SecurityContext: containerSC,
+						VolumeMounts:    observerMounts,
 					}},
 					Containers: []corev1.Container{{
-						Name:         loadgenContainerName,
-						Image:        r.LoadgenImage,
-						Args:         loadgenArgs(cr, url, caBundlePath),
-						VolumeMounts: loadgenMounts,
+						Name:            loadgenContainerName,
+						Image:           r.LoadgenImage,
+						Args:            loadgenArgs(cr, url, caBundlePath),
+						SecurityContext: containerSC,
+						VolumeMounts:    loadgenMounts,
 					}},
 				},
 			},
@@ -206,6 +211,33 @@ func (r *ScaleValidationReconciler) discoverProbe(ctx context.Context, cr *v1alp
 		return probe.Spec{}, fmt.Errorf("deployment %s has no containers", cr.Spec.TargetRef.Name)
 	}
 	return probe.DiscoverFromContainer(containers[0])
+}
+
+// restrictedPodSecurityContext satisfies the PodSecurityAdmission Restricted
+// profile: non-root user, runtime-default seccomp.
+func restrictedPodSecurityContext() *corev1.PodSecurityContext {
+	nonRoot := true
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot:   &nonRoot,
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+}
+
+// restrictedContainerSecurityContext satisfies the PodSecurityAdmission
+// Restricted profile per container: drop ALL caps, no privilege escalation,
+// read-only root filesystem. The shared run volume is writable for both the
+// loadgen result file and the observer's reads.
+func restrictedContainerSecurityContext() *corev1.SecurityContext {
+	nonRoot := true
+	noEsc := false
+	readOnly := true
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: &noEsc,
+		RunAsNonRoot:             &nonRoot,
+		ReadOnlyRootFilesystem:   &readOnly,
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
 }
 
 // targetURL assembles an HTTP URL, normalizing the path to a leading slash.
