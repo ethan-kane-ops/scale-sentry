@@ -205,8 +205,9 @@ release bump="auto":
     just check
     echo "▶ releasing $new_ver (chart + appVersion → $chart_ver)"
     yq -i ".version = \"$chart_ver\" | .appVersion = \"$chart_ver\"" charts/scale-sentry/Chart.yaml
+    just chart-docs
     git cliff --tag "$new_ver" -o CHANGELOG.md
-    git add CHANGELOG.md charts/scale-sentry/Chart.yaml
+    git add CHANGELOG.md charts/scale-sentry/Chart.yaml charts/scale-sentry/README.md
     git diff --cached --quiet || git commit -m "chore(release): $new_ver"
     git tag -a "$new_ver" -m "Release $new_ver"
     git push
