@@ -91,6 +91,86 @@ spec:
                       target RPS.
                     format: int32
                     type: integer
+                  profile:
+                    description: |-
+                      Profile selects the arrival-rate shape for the measurement
+                      window. Default Constant (today's behaviour). Poisson is the
+                      recommended choice for SLA-accurate verdicts because user
+                      traffic is open-loop.
+                    properties:
+                      endRps:
+                        description: EndRPS is the terminal rate for Ramp. Required
+                          when Pattern=Ramp.
+                        format: int32
+                        type: integer
+                      pattern:
+                        default: Constant
+                        description: Pattern is the arrival shape.
+                        enum:
+                        - Constant
+                        - Poisson
+                        - Ramp
+                        - Step
+                        - Spike
+                        type: string
+                      rampDuration:
+                        description: |-
+                          RampDuration is the wall-clock window over which Ramp interpolates
+                          from BaseRPS to EndRPS. Required when Pattern=Ramp.
+                        type: string
+                      spikes:
+                        description: |-
+                          Spikes is the ordered list of spike windows to stitch into the
+                          measurement phase. Required when Pattern=Spike.
+                        items:
+                          description: |-
+                            SpikeWindow describes a single rate-elevated slice inside a Spike
+                            measurement phase. At is measured from the start of the measurement
+                            phase (post-warmup). Spikes are inserted between Constant base slices
+                            at BaseRPS, so the resulting phase list is constant-spike-constant-...
+                          properties:
+                            at:
+                              description: |-
+                                At is the offset from measurement-phase start at which the spike
+                                begins.
+                              type: string
+                            duration:
+                              description: Duration is the wall-clock length of the
+                                spike.
+                              type: string
+                            rps:
+                              description: |-
+                                RPS is the rate held during the spike. Must be > BaseRPS or the
+                                "spike" would actually be a dip.
+                              format: int32
+                              type: integer
+                          required:
+                          - at
+                          - duration
+                          - rps
+                          type: object
+                        type: array
+                      stepDuration:
+                        description: |-
+                          StepDuration is the wall-clock interval between Step climbs.
+                          Required when Pattern=Step.
+                        type: string
+                      stepRps:
+                        description: |-
+                          StepRPS is the rate increment per StepDuration interval. Required
+                          when Pattern=Step.
+                        format: int32
+                        type: integer
+                    required:
+                    - pattern
+                    type: object
+                  warmupDuration:
+                    description: |-
+                      WarmupDuration runs traffic against the target before the
+                      measurement window opens. Requests are sent (so TCP/TLS handshakes
+                      settle, JIT runs, caches warm) but their latencies and counters
+                      are excluded from the SLA verdict. Default 0 (no warmup).
+                    type: string
                 required:
                 - baseRps
                 - concurrencyFactor
