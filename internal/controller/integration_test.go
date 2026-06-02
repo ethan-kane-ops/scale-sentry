@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -33,6 +34,10 @@ func newTestNamespace(t *testing.T) string {
 	return ns.Name
 }
 
+// fakeRecorderBuffer is the per-reconciler Event channel size. Generous so
+// no test ever fills it and silently drops Events.
+const fakeRecorderBuffer = 64
+
 func newReconciler() *ScaleValidationReconciler {
 	return &ScaleValidationReconciler{
 		Client:                 k8sClient,
@@ -40,6 +45,30 @@ func newReconciler() *ScaleValidationReconciler {
 		LoadgenImage:           "test/loadgen:v1",
 		ObserverImage:          "test/observer:v1",
 		ObserverServiceAccount: "scale-sentry-observer",
+		Recorder:               record.NewFakeRecorder(fakeRecorderBuffer),
+	}
+}
+
+// drainEventReasons reads every Event currently on the FakeRecorder's
+// channel and returns just the Reason field. FakeRecorder formats each
+// Event as "<type> <reason> <message>", so a space-split picks Reason out.
+func drainEventReasons(t *testing.T, r *ScaleValidationReconciler) []string {
+	t.Helper()
+	fr, ok := r.Recorder.(*record.FakeRecorder)
+	if !ok {
+		t.Fatalf("recorder is not a FakeRecorder: %T", r.Recorder)
+	}
+	var reasons []string
+	for {
+		select {
+		case ev := <-fr.Events:
+			parts := strings.SplitN(ev, " ", 3)
+			if len(parts) >= 2 {
+				reasons = append(reasons, parts[1])
+			}
+		default:
+			return reasons
+		}
 	}
 }
 
@@ -624,6 +653,113 @@ func TestIntegration_TLSCABundle_Present(t *testing.T) {
 	args := job.Spec.Template.Spec.Containers[0].Args
 	if i := slices.Index(args, "--tls-ca-bundle"); i < 0 {
 		t.Errorf("loadgen --tls-ca-bundle flag missing: %v", args)
+	}
+}
+
+// TestIntegration_Events_HappyPath asserts the happy-path Event sequence
+// (LoadgenJobCreated then VerdictPass) fires when a run reaches Succeeded.
+func TestIntegration_Events_HappyPath(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	line, err := observer.MarshalReportLine(observer.Report{
+		SLAStatus:        observer.VerdictPass,
+		TrafficIntegrity: observer.VerdictPass,
+		TotalRequests:    100,
+	})
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	r.observerLogFn = func(context.Context, *corev1.Pod) ([]byte, error) {
+		return []byte(line + "\n"), nil
+	}
+
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+	completeJob(t, ns, "run-loadgen")
+	createObserverPod(t, ns, "run")
+	reconcileCR(t, r, ns, "run")
+
+	got := drainEventReasons(t, r)
+	wantSubset := []string{EventReasonLoadgenJobCreated, EventReasonVerdictPass}
+	for _, want := range wantSubset {
+		if !slices.Contains(got, want) {
+			t.Errorf("event reasons = %v, missing %q", got, want)
+		}
+	}
+}
+
+// TestIntegration_Events_TargetReadyTimeout asserts the timeout path emits
+// a Warning TargetReadyTimeout Event with the diagnostic context.
+func TestIntegration_Events_TargetReadyTimeout(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	r.targetReadyTimeout = time.Nanosecond
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+
+	got := drainEventReasons(t, r)
+	if !slices.Contains(got, EventReasonTargetReadyTimeout) {
+		t.Errorf("event reasons = %v, missing %q", got, EventReasonTargetReadyTimeout)
+	}
+}
+
+// TestIntegration_Events_VerdictFail asserts the SLA-failed path emits a
+// Warning VerdictFail Event embedding the top diagnostic.
+func TestIntegration_Events_VerdictFail(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	line, err := observer.MarshalReportLine(observer.Report{
+		SLAStatus:        observer.VerdictFail,
+		TrafficIntegrity: observer.VerdictPass,
+		Diagnostics: []v1alpha1.DiagnosticAlert{
+			{Type: "HPAReactSlow", Severity: "Critical", Message: "scale-up exceeded SLA"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	r.observerLogFn = func(context.Context, *corev1.Pod) ([]byte, error) {
+		return []byte(line + "\n"), nil
+	}
+
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+	completeJob(t, ns, "run-loadgen")
+	createObserverPod(t, ns, "run")
+	reconcileCR(t, r, ns, "run")
+
+	got := drainEventReasons(t, r)
+	if !slices.Contains(got, EventReasonVerdictFail) {
+		t.Errorf("event reasons = %v, missing %q", got, EventReasonVerdictFail)
+	}
+}
+
+// TestIntegration_Events_TLSCABundleMissing asserts the missing-bundle path
+// emits a Warning TLSCABundleMissing Event.
+func TestIntegration_Events_TLSCABundleMissing(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
+			CABundle: &v1alpha1.CABundleSource{
+				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "missing-ca", Key: "ca.crt"},
+			},
+		}
+	}))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+
+	got := drainEventReasons(t, r)
+	if !slices.Contains(got, EventReasonTLSCABundleMissing) {
+		t.Errorf("event reasons = %v, missing %q", got, EventReasonTLSCABundleMissing)
 	}
 }
 

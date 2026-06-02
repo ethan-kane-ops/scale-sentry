@@ -93,6 +93,13 @@ func runController(o controllerOpts) error {
 		LoadgenImage:           o.loadgenImage,
 		ObserverImage:          o.observerImage,
 		ObserverServiceAccount: o.observerServiceAccount,
+		// GetEventRecorderFor is marked deprecated by controller-runtime in
+		// favour of the new events.v1 API, but the new API still requires
+		// extra per-event fields (action, related object) that don't fit
+		// the simple `kubectl describe` UX we want here. cert-manager and
+		// karpenter still use the legacy API for the same reason. Revisit
+		// when controller-runtime actually removes the symbol.
+		Recorder: mgr.GetEventRecorderFor("scale-sentry"), //nolint:staticcheck
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("set up scalevalidation controller: %w", err)
 	}
