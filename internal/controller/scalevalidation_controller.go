@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -62,6 +63,22 @@ const scaleValidationFinalizer = "validation.scale-sentry.ek.co/finalizer"
 // fully clear after a Delete request before the finalizer is dropped.
 const childTerminationRequeue = 2 * time.Second
 
+// Event Reason constants written via Recorder. Kept PascalCase + short so
+// `kubectl describe scalevalidation` renders them cleanly and external
+// consumers (controllers watching Events, alert routers) can match on
+// stable strings. Documented in docs/events.md.
+const (
+	EventReasonLoadgenJobCreated  = "LoadgenJobCreated"
+	EventReasonLoadgenJobFailed   = "LoadgenJobFailed"
+	EventReasonLoadgenJobVanished = "LoadgenJobVanished"
+	EventReasonTargetReadyTimeout = "TargetReadyTimeout"
+	EventReasonTLSCABundleMissing = "TLSCABundleMissing"
+	EventReasonVerdictPass        = "VerdictPass"
+	EventReasonVerdictFail        = "VerdictFail"
+	EventReasonRunErrored         = "RunErrored"
+	EventReasonFinalizerDraining  = "FinalizerDraining"
+)
+
 // ScaleValidationReconciler reconciles a ScaleValidation object.
 type ScaleValidationReconciler struct {
 	client.Client
@@ -75,6 +92,11 @@ type ScaleValidationReconciler struct {
 	// ObserverServiceAccount is the ServiceAccount the Job pod runs as,
 	// granting the observer its read + pods/exec permissions.
 	ObserverServiceAccount string
+	// Recorder publishes Events against the ScaleValidation CR so
+	// `kubectl describe scalevalidation` narrates the run lifecycle.
+	// Nil is tolerated (eventf no-ops) so callers may stub the recorder
+	// out in unit tests that don't care about Events.
+	Recorder record.EventRecorder
 	// observerLogFn overrides the observer-log read. Production leaves it
 	// nil, the Clientset pods/log path is used. The integration suite
 	// injects a stub because envtest runs no kubelet to serve logs.
@@ -83,6 +105,14 @@ type ScaleValidationReconciler struct {
 	// readiness-gate timeout path can be exercised without sleeping. Zero
 	// means use the production default.
 	targetReadyTimeout time.Duration
+}
+
+// eventf emits an Event against cr, no-oping if Recorder is unset.
+func (r *ScaleValidationReconciler) eventf(cr *v1alpha1.ScaleValidation, eventType, reason, format string, args ...any) {
+	if r.Recorder == nil {
+		return
+	}
+	r.Recorder.Eventf(cr, eventType, reason, format, args...)
 }
 
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations,verbs=get;list;watch;create;update;patch
@@ -135,6 +165,8 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	case apierrors.IsNotFound(err):
 		if cr.Status.Phase == PhaseRunning {
 			log.Info("loadgen job vanished before completion", "job", jobKey.Name)
+			r.eventf(&cr, corev1.EventTypeWarning, EventReasonLoadgenJobVanished,
+				"loadgen Job %s disappeared while phase=Running", jobKey.Name)
 			return r.setPhase(ctx, &cr, PhaseError)
 		}
 		ready, readyReplicas, err := r.targetReady(ctx, &cr)
@@ -161,6 +193,8 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	switch {
 	case jobConditionTrue(&job, batchv1.JobFailed):
 		log.Info("loadgen job failed", "job", job.Name)
+		r.eventf(&cr, corev1.EventTypeWarning, EventReasonLoadgenJobFailed,
+			"loadgen Job %s reached condition Failed=True", job.Name)
 		metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
 		return r.setPhase(ctx, &cr, PhaseError)
 	case jobConditionTrue(&job, batchv1.JobComplete):
@@ -182,6 +216,8 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 	}
 	if pod == nil {
 		log.Info("loadgen job pod not found; cannot collect observer report")
+		r.eventf(cr, corev1.EventTypeWarning, EventReasonRunErrored,
+			"loadgen Job %s completed but no pod found to read observer report from", loadgenJobName(cr))
 		return r.setPhase(ctx, cr, PhaseError)
 	}
 	if !observerTerminated(pod) {
@@ -197,11 +233,15 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 	raw, err := readLog(ctx, pod)
 	if err != nil {
 		log.Error(err, "read observer log")
+		r.eventf(cr, corev1.EventTypeWarning, EventReasonRunErrored,
+			"reading observer log from pod %s failed: %v", pod.Name, err)
 		return r.setPhase(ctx, cr, PhaseError)
 	}
 	report, err := observer.ParseReportLog(raw)
 	if err != nil {
 		log.Error(err, "parse observer report")
+		r.eventf(cr, corev1.EventTypeWarning, EventReasonRunErrored,
+			"parsing observer report from pod %s failed: %v", pod.Name, err)
 		return r.setPhase(ctx, cr, PhaseError)
 	}
 
@@ -214,9 +254,44 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 		return ctrl.Result{}, fmt.Errorf("write run results: %w", err)
 	}
 	recordRunMetrics(cr, report)
+	emitVerdictEvent(r, cr, report)
 	log.Info("validation run finished",
 		"phase", cr.Status.Phase, "sla", report.SLAStatus, "traffic", report.TrafficIntegrity)
 	return ctrl.Result{}, nil
+}
+
+// emitVerdictEvent fires the terminal Event for a finished run. Pass on
+// Succeeded (Normal VerdictPass), Warning VerdictFail otherwise. The
+// message embeds the top diagnostic so `kubectl describe` shows the
+// "why" without a second roundtrip.
+func emitVerdictEvent(r *ScaleValidationReconciler, cr *v1alpha1.ScaleValidation, report observer.Report) {
+	if cr.Status.Phase == PhaseSucceeded {
+		r.eventf(cr, corev1.EventTypeNormal, EventReasonVerdictPass,
+			"SLA=%s traffic=%s requests=%d failed=%d",
+			report.SLAStatus, report.TrafficIntegrity, report.TotalRequests, report.FailedRequests)
+		return
+	}
+	top := topDiagnostic(report.Diagnostics)
+	r.eventf(cr, corev1.EventTypeWarning, EventReasonVerdictFail,
+		"SLA=%s traffic=%s failed=%d top diagnostic: %s",
+		report.SLAStatus, report.TrafficIntegrity, report.FailedRequests, top)
+}
+
+// topDiagnostic returns a short string describing the highest-severity
+// diagnostic in diags, suitable for embedding in an Event message. Falls
+// back to "<none>" when the run failed but no diagnostic was attached.
+func topDiagnostic(diags []v1alpha1.DiagnosticAlert) string {
+	if len(diags) == 0 {
+		return "<none>"
+	}
+	rank := map[string]int{"Critical": 3, "Warning": 2, "Info": 1}
+	best := diags[0]
+	for _, d := range diags[1:] {
+		if rank[d.Severity] > rank[best.Severity] {
+			best = d
+		}
+	}
+	return fmt.Sprintf("%s (%s)", best.Type, best.Severity)
 }
 
 // recordRunMetrics emits the per-run Prometheus observations once the run
@@ -313,6 +388,9 @@ func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *
 			cr.Namespace, cr.Spec.TargetRef.Name, readyReplicas, timeout),
 		Recommendation: "ensure the target Deployment is healthy before applying the ScaleValidation",
 	})
+	r.eventf(cr, corev1.EventTypeWarning, EventReasonTargetReadyTimeout,
+		"target Deployment %s/%s had %d ready replicas after waiting %s",
+		cr.Namespace, cr.Spec.TargetRef.Name, readyReplicas, timeout)
 	metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
 	metrics.DiagnosticAlertsTotal.WithLabelValues("TargetNotReady", "Critical").Inc()
 	return r.setPhase(ctx, cr, PhaseError)
@@ -346,6 +424,8 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 		return ctrl.Result{}, fmt.Errorf("create loadgen job: %w", err)
 	}
 	log.Info("spawned loadgen job", "job", job.Name, "url", url)
+	r.eventf(cr, corev1.EventTypeNormal, EventReasonLoadgenJobCreated,
+		"loadgen Job %s created against %s", job.Name, url)
 
 	now := metav1.Now()
 	cr.Status.LastRunTime = &now
@@ -389,6 +469,8 @@ func (r *ScaleValidationReconciler) finalize(ctx context.Context, cr *v1alpha1.S
 				return ctrl.Result{}, fmt.Errorf("delete loadgen job: %w", err)
 			}
 			log.Info("requested loadgen job deletion during finalize", "job", job.Name)
+			r.eventf(cr, corev1.EventTypeNormal, EventReasonFinalizerDraining,
+				"requested deletion of loadgen Job %s during CR finalize", job.Name)
 		}
 		return ctrl.Result{RequeueAfter: childTerminationRequeue}, nil
 	}
@@ -438,6 +520,7 @@ func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1a
 		Message:        msg,
 		Recommendation: rec,
 	})
+	r.eventf(cr, corev1.EventTypeWarning, EventReasonTLSCABundleMissing, "%s", msg)
 	metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
 	metrics.DiagnosticAlertsTotal.WithLabelValues("TLSCABundleMissing", "Critical").Inc()
 	_, err := r.setPhase(ctx, cr, PhaseError)
