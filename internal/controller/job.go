@@ -50,7 +50,7 @@ func loadgenJobName(cr *v1alpha1.ScaleValidation) string {
 // buildLoadgenJob constructs the validation Job: the loadgen container plus
 // the observer native sidecar, sharing an emptyDir for the result file.
 // BackoffLimit is 0, a load run is a measurement, not retryable work.
-func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation, url string) *batchv1.Job {
+func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation, url string) (*batchv1.Job, error) {
 	backoffLimit := int32(0)
 	grace := int64(jobGracePeriodSeconds)
 	sidecarRestart := corev1.ContainerRestartPolicyAlways
@@ -84,6 +84,10 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 		})
 	}
 
+	lgArgs, err := loadgenArgs(cr, url, caBundlePath)
+	if err != nil {
+		return nil, err
+	}
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      loadgenJobName(cr),
@@ -115,28 +119,47 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 					Containers: []corev1.Container{{
 						Name:            loadgenContainerName,
 						Image:           r.LoadgenImage,
-						Args:            loadgenArgs(cr, url, caBundlePath),
+						Args:            lgArgs,
 						SecurityContext: containerSC,
 						VolumeMounts:    loadgenMounts,
 					}},
 				},
 			},
 		},
-	}
+	}, nil
 }
 
 // loadgenArgs renders the loadgen container flags. The loadgen binary is
 // the image entrypoint, so the subcommand name is omitted. caBundlePath is
 // non-empty only when the CR's TLS block references a CA ConfigMap.
-func loadgenArgs(cr *v1alpha1.ScaleValidation, url, caBundlePath string) []string {
+//
+// When the CR carries a load profile (warmup or non-Constant pattern),
+// the controller marshals the resolved phase list into --phases JSON;
+// otherwise the legacy --rps/--duration flags are passed so existing
+// samples and the simple-Constant case keep working unchanged.
+func loadgenArgs(cr *v1alpha1.ScaleValidation, url, caBundlePath string) ([]string, error) {
 	args := []string{
 		"--url", url,
-		"--rps", strconv.Itoa(int(cr.Spec.Load.BaseRPS)),
-		"--duration", cr.Spec.SLA.Duration.String(),
 		"--connection-mode", defaultLoadgenConnectionMode,
 		"--target-mode", cr.Spec.Target.Mode,
 		"--network-path", cr.Spec.Target.NetworkPath,
 		"--result-file", resultFilePath,
+	}
+	phases, err := buildPhases(cr)
+	if err != nil {
+		return nil, err
+	}
+	if phases != nil {
+		js, err := phasesJSON(phases)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "--phases", js)
+	} else {
+		args = append(args,
+			"--rps", strconv.Itoa(int(cr.Spec.Load.BaseRPS)),
+			"--duration", cr.Spec.SLA.Duration.String(),
+		)
 	}
 	if tls := cr.Spec.Target.TLS; tls != nil {
 		if tls.InsecureSkipVerify {
@@ -146,7 +169,7 @@ func loadgenArgs(cr *v1alpha1.ScaleValidation, url, caBundlePath string) []strin
 	if caBundlePath != "" {
 		args = append(args, "--tls-ca-bundle", caBundlePath)
 	}
-	return args
+	return args, nil
 }
 
 // caBundleRef returns the ConfigMapKeyRef from the CR's TLS spec, or nil.

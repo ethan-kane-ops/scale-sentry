@@ -33,6 +33,7 @@ type opts struct {
 	resultFile        string
 	tlsInsecure       bool
 	tlsCABundle       string
+	phasesJSON        string
 }
 
 func main() {
@@ -59,10 +60,9 @@ func main() {
 	f.StringVar(&o.resultFile, "result-file", "", "also write the JSON Result to this path (for the observer sidecar)")
 	f.BoolVar(&o.tlsInsecure, "tls-insecure-skip-verify", false, "disable TLS certificate verification (dev / CI only, masks TLS failures)")
 	f.StringVar(&o.tlsCABundle, "tls-ca-bundle", "", "path to a PEM-encoded CA bundle to trust (for private ingress CAs)")
+	f.StringVar(&o.phasesJSON, "phases", "", "JSON-encoded []loadgen.Phase replacing --rps/--duration with a phased run (warmup, ramp, spike)")
 
 	_ = cmd.MarkFlagRequired("url")
-	_ = cmd.MarkFlagRequired("rps")
-	_ = cmd.MarkFlagRequired("duration")
 	_ = cmd.MarkFlagRequired("connection-mode")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -94,14 +94,27 @@ func run(ctx context.Context, o opts) error {
 		TLSInsecureSkipVerify: o.tlsInsecure,
 		TLSCABundlePath:       o.tlsCABundle,
 	}
+	if o.phasesJSON != "" {
+		if err := json.Unmarshal([]byte(o.phasesJSON), &cfg.Phases); err != nil {
+			return fmt.Errorf("parse --phases: %w", err)
+		}
+	}
+	if o.phasesJSON == "" && (o.rps == 0 || o.duration == 0) {
+		return fmt.Errorf("either --phases or both --rps and --duration are required")
+	}
 
 	g, err := loadgen.New(cfg)
 	if err != nil {
 		return fmt.Errorf("new generator: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "loadgen: %s @ %d RPS for %s (mode=%s)\n",
-		cfg.URL, cfg.TargetRPS, cfg.Duration, cfg.ConnectionMode)
+	if len(cfg.Phases) > 0 {
+		fmt.Fprintf(os.Stderr, "loadgen: %s phased run (%d phases, mode=%s)\n",
+			cfg.URL, len(cfg.Phases), cfg.ConnectionMode)
+	} else {
+		fmt.Fprintf(os.Stderr, "loadgen: %s @ %d RPS for %s (mode=%s)\n",
+			cfg.URL, cfg.TargetRPS, cfg.Duration, cfg.ConnectionMode)
+	}
 
 	result := g.Run(ctx)
 

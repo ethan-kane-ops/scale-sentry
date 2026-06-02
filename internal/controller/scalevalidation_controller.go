@@ -334,7 +334,11 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 		return ctrl.Result{}, nil
 	}
 
-	job := r.buildLoadgenJob(cr, url)
+	job, err := r.buildLoadgenJob(cr, url)
+	if err != nil {
+		log.Error(err, "build loadgen job")
+		return r.setPhase(ctx, cr, PhaseError)
+	}
 	if err := controllerutil.SetControllerReference(cr, job, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("set owner reference: %w", err)
 	}
