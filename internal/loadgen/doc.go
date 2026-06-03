@@ -1,10 +1,14 @@
-// Package loadgen implements a high-throughput HTTP load generator built on
-// fasthttp. It is invoked by the controller as a Kubernetes Job to drive
-// traffic at a target deployment while the validation suite runs.
+// Package loadgen implements a high-throughput HTTP load generator. By
+// default it dispatches via fasthttp (HTTP/1.1); when Config.Protocol
+// is set to ProtocolHTTP2 it swaps in a net/http + http2.Transport
+// client speaking ALPN-negotiated h2 (TLS) or prior-knowledge h2c
+// (cleartext). It is invoked by the controller as a Kubernetes Job to
+// drive traffic at a target deployment while the validation suite runs.
 //
 // The generator is intentionally narrow:
 //   - one URL per run (path isolation, no interleaved traffic patterns)
 //   - one connection mode per run (KeepAlive or ShortLived)
+//   - one wire protocol per run (HTTP1 or HTTP2)
 //   - ordered phase list with a bounded scheduled-arrival channel per phase
 //
 // URL construction is exposed via [URLSpec] so callers can build target URLs

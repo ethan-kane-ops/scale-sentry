@@ -34,6 +34,7 @@ type opts struct {
 	tlsInsecure       bool
 	tlsCABundle       string
 	phasesJSON        string
+	protocol          string
 }
 
 func main() {
@@ -61,6 +62,7 @@ func main() {
 	f.BoolVar(&o.tlsInsecure, "tls-insecure-skip-verify", false, "disable TLS certificate verification (dev / CI only, masks TLS failures)")
 	f.StringVar(&o.tlsCABundle, "tls-ca-bundle", "", "path to a PEM-encoded CA bundle to trust (for private ingress CAs)")
 	f.StringVar(&o.phasesJSON, "phases", "", "JSON-encoded []loadgen.Phase replacing --rps/--duration with a phased run (warmup, ramp, spike)")
+	f.StringVar(&o.protocol, "protocol", "", "HTTP wire protocol: HTTP1 (default, fasthttp) or HTTP2 (net/http + http2.Transport)")
 
 	_ = cmd.MarkFlagRequired("url")
 	_ = cmd.MarkFlagRequired("connection-mode")
@@ -93,6 +95,7 @@ func run(ctx context.Context, o opts) error {
 		NetworkPath:           loadgen.NetworkPath(o.networkPath),
 		TLSInsecureSkipVerify: o.tlsInsecure,
 		TLSCABundlePath:       o.tlsCABundle,
+		Protocol:              loadgen.Protocol(o.protocol),
 	}
 	if o.phasesJSON != "" {
 		if err := json.Unmarshal([]byte(o.phasesJSON), &cfg.Phases); err != nil {

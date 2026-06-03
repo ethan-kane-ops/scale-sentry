@@ -8,13 +8,14 @@ import (
 type ErrorCategory string
 
 const (
-	ErrTimeout   ErrorCategory = "Timeout"
-	ErrDial      ErrorCategory = "Dial"
-	ErrConnReset ErrorCategory = "ConnReset"
-	ErrTLS       ErrorCategory = "TLS"
-	ErrServer    ErrorCategory = "Server5xx"
-	ErrClient    ErrorCategory = "Client4xx"
-	ErrOther     ErrorCategory = "Other"
+	ErrTimeout     ErrorCategory = "Timeout"
+	ErrDial        ErrorCategory = "Dial"
+	ErrConnReset   ErrorCategory = "ConnReset"
+	ErrTLS         ErrorCategory = "TLS"
+	ErrServer      ErrorCategory = "Server5xx"
+	ErrClient      ErrorCategory = "Client4xx"
+	ErrStreamReset ErrorCategory = "StreamReset"
+	ErrOther       ErrorCategory = "Other"
 )
 
 // ErrorSample is a single failed request tagged with the wall-clock time

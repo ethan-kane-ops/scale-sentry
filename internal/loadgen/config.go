@@ -19,6 +19,18 @@ const (
 	ShortLived ConnectionMode = "ShortLived"
 )
 
+// Protocol selects the HTTP wire protocol used to dispatch requests.
+// HTTP1 uses fasthttp (the original loadgen client). HTTP2 uses net/http
+// + golang.org/x/net/http2.Transport: a single TCP/TLS connection carries
+// many concurrent streams, exercising the path real h2 services hit at
+// scale (connection-pool dynamics, GOAWAY handling, stream-reset cost).
+type Protocol string
+
+const (
+	ProtocolHTTP1 Protocol = "HTTP1"
+	ProtocolHTTP2 Protocol = "HTTP2"
+)
+
 // TargetMode mirrors api/v1alpha1.TargetConfig.Mode for result tagging.
 // The loadgen package does not resolve modes, the controller resolves them
 // and passes a concrete URL plus this label.
@@ -82,6 +94,12 @@ type Config struct {
 	// loadgen can validate them without InsecureSkipVerify.
 	TLSCABundlePath string
 
+	// Protocol selects the HTTP wire protocol. Defaults to ProtocolHTTP1
+	// (fasthttp). ProtocolHTTP2 swaps in a net/http + http2.Transport
+	// client. The underlying client implementation honors the same
+	// Timeout, Headers, Method, ConnectionMode, and TLS* fields.
+	Protocol Protocol
+
 	// Phases optionally replaces the single-shot Duration/TargetRPS pair
 	// with an ordered list of arrival-rate segments (warmup, measure,
 	// spike, etc.). When set, the generator ignores Duration and
@@ -129,6 +147,11 @@ func (cfg Config) Validate() error {
 	default:
 		return fmt.Errorf("unknown connectionMode %q", cfg.ConnectionMode)
 	}
+	switch cfg.Protocol {
+	case "", ProtocolHTTP1, ProtocolHTTP2:
+	default:
+		return fmt.Errorf("unknown protocol %q", cfg.Protocol)
+	}
 	if cfg.Method != "" {
 		if _, err := http.NewRequest(cfg.Method, cfg.URL, nil); err != nil {
 			return fmt.Errorf("invalid method %q: %w", cfg.Method, err)
@@ -147,6 +170,9 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 5 * time.Second
+	}
+	if cfg.Protocol == "" {
+		cfg.Protocol = ProtocolHTTP1
 	}
 	if len(cfg.Phases) == 0 {
 		cfg.Phases = []Phase{{

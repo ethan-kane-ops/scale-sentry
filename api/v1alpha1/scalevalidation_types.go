@@ -36,6 +36,18 @@ type TargetConfig struct {
 	// +kubebuilder:default=ClusterIP
 	NetworkPath string `json:"networkPath"`
 
+	// Protocol selects the HTTP wire protocol the loadgen speaks to
+	// the target. HTTP1 uses fasthttp (default, backwards-compatible).
+	// HTTP2 uses net/http + http2.Transport: ALPN-negotiated h2 for
+	// https URLs, prior-knowledge h2c for http URLs. Use HTTP2 when
+	// the target is a gRPC service, an envoy-fronted backend, or any
+	// workload whose scaling characteristics depend on stream
+	// multiplexing rather than per-request connection cost.
+	// +kubebuilder:validation:Enum=HTTP1;HTTP2
+	// +kubebuilder:default=HTTP1
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
+
 	// TLS configures HTTPS verification for the loadgen client. Only
 	// applies when the resolved target URL uses the https scheme.
 	// +optional

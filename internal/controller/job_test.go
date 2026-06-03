@@ -218,6 +218,27 @@ func TestLoadgenArgs_TLSCABundle(t *testing.T) {
 	})
 }
 
+func TestLoadgenArgs_Protocol(t *testing.T) {
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.Protocol = "HTTP2"
+	})
+	args, err := loadgenArgs(cr, "http://app.demo.svc.cluster.local:8080/", "")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
+	assertFlags(t, args, map[string]string{"--protocol": "HTTP2"})
+}
+
+func TestLoadgenArgs_ProtocolOmittedWhenEmpty(t *testing.T) {
+	args, err := loadgenArgs(testCR(nil), "http://app.demo.svc.cluster.local:8080/", "")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
+	if slices.Contains(args, "--protocol") {
+		t.Errorf("--protocol should be omitted when spec.target.protocol is empty (loadgen default applies): %v", args)
+	}
+}
+
 func TestObserverArgs(t *testing.T) {
 	args := observerArgs(testCR(nil))
 	want := map[string]string{

@@ -1,0 +1,28 @@
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: billing-http2-validation
+  namespace: production
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: billing-service
+
+  sla: 3m
+
+  target:
+    mode: ServiceDefault
+    port: 8080
+    networkPath: ClusterIP
+    # HTTP/2 over cleartext (h2c) when networkPath: ClusterIP because the
+    # Service URL is plain http://. For Ingress fronted by TLS the same
+    # protocol setting negotiates h2 via ALPN. Use HTTP2 against gRPC
+    # services, Envoy-fronted backends, or anything whose scaling
+    # signature depends on stream multiplexing rather than per-request
+    # connection cost.
+    protocol: HTTP2
+
+  load:
+    baseRps: 200
+    concurrencyFactor: 50
