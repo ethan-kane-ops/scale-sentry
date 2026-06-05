@@ -43,6 +43,10 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Configuration: configuration.md
+  - Load Profiles: load-profiles.md
+  - Protocols: protocols.md
+  - Events: events.md
+  - Target Cookbook: target-cookbook.md
   - High Availability: high-availability.md
   - Observability: observability.md
   - Security: security.md
