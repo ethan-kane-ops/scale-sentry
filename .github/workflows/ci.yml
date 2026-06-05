@@ -3,8 +3,20 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "CHANGELOG.md"
+      - "mkdocs.yml"
+      - ".github/ISSUE_TEMPLATE/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "CHANGELOG.md"
+      - "mkdocs.yml"
+      - ".github/ISSUE_TEMPLATE/**"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -17,18 +29,48 @@ jobs:
   check:
     name: tidy + lint + test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: ./.github/actions/setup
+      - name: Tidy + lint
+        run: |
+          just tidy
+          just lint
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+      - name: Install setup-envtest (envtest assets cache)
+        run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+      - name: Cache envtest assets
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
-          go-version-file: go.mod
-          cache: true
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+          path: ~/.local/share/kubebuilder-envtest
+          key: envtest-${{ runner.os }}-${{ hashFiles('go.mod') }}
+          restore-keys: |
+            envtest-${{ runner.os }}-
+      - name: Test + coverage
+        run: |
+          KUBEBUILDER_ASSETS="$(setup-envtest use -p path)"
+          export KUBEBUILDER_ASSETS
+          gotestsum \
+            --format pkgname \
+            --rerun-fails=1 \
+            --packages=./... \
+            --junitfile junit.xml \
+            -- \
+            -tags envtest \
+            -covermode=atomic \
+            -coverpkg=./internal/...,./api/... \
+            -coverprofile=coverage.out
+      - name: Publish JUnit summary
+        if: always()
+        uses: mikepenz/action-junit-report@db71d41eb79864e25ab0337e395c352e84523afe # v5.6.2
         with:
-          experimental: true
-      - run: just check
-      - name: Coverage
-        run: just cover
+          report_paths: junit.xml
+          require_tests: true
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5.5.4
         with:
@@ -42,13 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          experimental: true
+      - uses: ./.github/actions/setup
       - run: just generate manifests
       - name: Fail if generated files drifted
         run: git diff --exit-code -- api/ config/
@@ -58,9 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          experimental: true
+      - uses: ./.github/actions/setup
       - run: just chart-rbac-check
 
   kubeconform:
@@ -68,9 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          experimental: true
+      - uses: ./.github/actions/setup
       - run: |
           kubeconform -strict -summary -ignore-missing-schemas \
             -schema-location default \
@@ -94,18 +126,29 @@ jobs:
             CMD=${{ matrix.cmd }}
           tags: scale-sentry-${{ matrix.cmd }}:ci
           push: false
+          outputs: type=docker,dest=/tmp/scale-sentry-${{ matrix.cmd }}.tar
+      - name: Upload image artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4.4.3
+        with:
+          name: image-${{ matrix.cmd }}
+          path: /tmp/scale-sentry-${{ matrix.cmd }}.tar
+          retention-days: 1
+          if-no-files-found: error
 
-  e2e:
-    name: kind smoke E2E
+  summary:
+    name: CI summary
     runs-on: ubuntu-latest
-    needs: [check, images]
+    needs: [check, manifest-drift, chart-rbac-check, kubeconform, images]
+    if: always()
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          experimental: true
-      - run: just test-e2e
+      - name: Verify required jobs succeeded
+        run: |
+          if [[ "${{ needs.check.result }}" != "success" \
+             || "${{ needs.manifest-drift.result }}" != "success" \
+             || "${{ needs.chart-rbac-check.result }}" != "success" \
+             || "${{ needs.kubeconform.result }}" != "success" \
+             || "${{ needs.images.result }}" != "success" ]]; then
+            echo "✗ one or more required jobs failed"
+            exit 1
+          fi
+          echo "✓ all required jobs passed"
