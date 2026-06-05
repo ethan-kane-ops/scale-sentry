@@ -200,10 +200,15 @@ func observerArgs(cr *v1alpha1.ScaleValidation) []string {
 // and CustomPath are resolved purely from the spec; AutoDiscoverProbe reads
 // the target Deployment's readiness probe via the probe analyzer.
 //
-// The workload is assumed to be fronted by a Service sharing its name;
-// real Service discovery and Ingress host resolution remain future work.
+// The default workload is assumed to be fronted by a Service sharing its
+// name; .spec.target.host overrides that when set, which is the entry
+// point for Gateway / Ingress runs that route through an edge address
+// rather than the in-cluster Service DNS.
 func (r *ScaleValidationReconciler) resolveTargetURL(ctx context.Context, cr *v1alpha1.ScaleValidation) (string, error) {
-	host := fmt.Sprintf("%s.%s.svc.cluster.local", cr.Spec.TargetRef.Name, cr.Namespace)
+	host := cr.Spec.Target.Host
+	if host == "" {
+		host = fmt.Sprintf("%s.%s.svc.cluster.local", cr.Spec.TargetRef.Name, cr.Namespace)
+	}
 	port := cr.Spec.Target.Port
 	scheme := "http"
 

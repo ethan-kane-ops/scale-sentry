@@ -1,0 +1,30 @@
+# HTTP/1.1 through the Envoy Gateway edge. Host overrides the default
+# Service DNS so the loadgen hits the Gateway address; Envoy routes via
+# HTTPRoute whoami-h1 back to the workload. The HPA fires on backend CPU
+# the same way as the ClusterIP run; the Gateway-vs-direct latency delta
+# is the load-balanced-edge cost the e2e is meant to surface.
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: e2e-http1-gateway
+  namespace: scale-sentry-e2e
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: whoami-h1
+  sla: 2m
+  target:
+    mode: ServiceDefault
+    port: 80
+    networkPath: Gateway
+    protocol: HTTP1
+    # Envoy Gateway provisions a ClusterIP Service named
+    # envoy-<gw-ns>-<gw-name>-<hash> in the envoy-gateway-system
+    # namespace by default. Adjust if your install names differ.
+    host: envoy-scale-sentry-e2e-scale-sentry-eg.envoy-gateway-system.svc.cluster.local
+  load:
+    baseRps: 200
+    concurrencyFactor: 50
+    profile:
+      pattern: Poisson

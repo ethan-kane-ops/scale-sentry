@@ -54,7 +54,11 @@ type NetworkPath string
 
 const (
 	PathClusterIP NetworkPath = "ClusterIP"
-	PathIngress   NetworkPath = "Ingress"
+	// PathIngress is the legacy classic-Ingress label; PathGateway is
+	// preferred for new fixtures and is fed by Envoy Gateway and the
+	// upstream Gateway API.
+	PathIngress NetworkPath = "Ingress"
+	PathGateway NetworkPath = "Gateway"
 )
 
 // Config is the full input to [Generator].

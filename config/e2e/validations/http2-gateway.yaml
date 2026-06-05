@@ -1,0 +1,25 @@
+# HTTP/2 through Envoy Gateway. Loadgen speaks h2c to the gateway
+# listener on :8080; Envoy translates to the upstream Service h2c (the
+# Service marks appProtocol=h2c, so Envoy keeps h2 framing end-to-end).
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: e2e-http2-gateway
+  namespace: scale-sentry-e2e
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: whoami-h2
+  sla: 2m
+  target:
+    mode: ServiceDefault
+    port: 8080
+    networkPath: Gateway
+    protocol: HTTP2
+    host: envoy-scale-sentry-e2e-scale-sentry-eg.envoy-gateway-system.svc.cluster.local
+  load:
+    baseRps: 200
+    concurrencyFactor: 50
+    profile:
+      pattern: Poisson

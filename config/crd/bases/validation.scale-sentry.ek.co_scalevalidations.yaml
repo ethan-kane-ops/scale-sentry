@@ -201,6 +201,15 @@ spec:
                           publishes multiple per-service health entries.
                         type: string
                     type: object
+                  host:
+                    description: |-
+                      Host overrides the URL host the loadgen Job hits. Empty (default)
+                      resolves to "<targetRef.name>.<namespace>.svc.cluster.local",
+                      which is correct for ClusterIP runs against a Service that shares
+                      the workload name. Set this to point load through an edge: e.g.
+                      the Envoy Gateway address for a Gateway run, or the Ingress LB
+                      hostname for the legacy Ingress path.
+                    type: string
                   mode:
                     description: Mode determines how the load test target is resolved.
                     enum:
@@ -213,11 +222,14 @@ spec:
                     description: |-
                       NetworkPath determines the routing pathway for load traffic.
                       ClusterIP sends traffic directly to the Service inside the cluster.
-                      Ingress sends traffic through the edge Ingress controller.
-                      Only one pathway runs per validation to isolate variables.
+                      Ingress sends traffic through a classic Ingress controller (legacy
+                      path, prefer Gateway for new deployments). Gateway sends traffic
+                      through a Gateway API edge (Envoy Gateway and friends). Only one
+                      pathway runs per validation to isolate variables.
                     enum:
                     - ClusterIP
                     - Ingress
+                    - Gateway
                     type: string
                   port:
                     description: Port is the target port number.

@@ -1,0 +1,10 @@
+# Dedicated namespace for the scale-sentry e2e fixtures. Keeping the
+# targets out of the operator namespace makes "kubectl delete ns
+# scale-sentry-e2e" a clean teardown.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scale-sentry-e2e
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    app.kubernetes.io/managed-by: scale-sentry-e2e

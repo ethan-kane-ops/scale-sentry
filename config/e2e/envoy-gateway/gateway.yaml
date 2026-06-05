@@ -1,0 +1,40 @@
+# Envoy Gateway GatewayClass + Gateway for the scale-sentry e2e fixtures.
+#
+# Assumes Envoy Gateway is installed in the cluster (see README). The
+# class controller name "gateway.envoyproxy.io/gatewayclass-controller"
+# is the upstream Envoy Gateway default since v1.0; if a downstream
+# install pins a different controller, edit the controllerName below.
+#
+# The Gateway listens on three ports so each protocol terminates on its
+# own listener and the HPA signal is isolated per protocol:
+#   :80   HTTP/1.1
+#   :8080 HTTP/2 cleartext (h2c)
+#   :50051 gRPC (h2 framing)
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: scale-sentry-eg
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scale-sentry-eg
+  namespace: scale-sentry-e2e
+spec:
+  gatewayClassName: scale-sentry-eg
+  listeners:
+    - name: http1
+      protocol: HTTP
+      port: 80
+      allowedRoutes: { namespaces: { from: Same } }
+    - name: http2
+      protocol: HTTP
+      port: 8080
+      allowedRoutes: { namespaces: { from: Same } }
+    - name: grpc
+      protocol: HTTP
+      port: 50051
+      allowedRoutes: { namespaces: { from: Same } }
