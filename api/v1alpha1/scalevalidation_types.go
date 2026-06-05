@@ -82,6 +82,68 @@ type LoadConfig struct {
 
 	// ConcurrencyFactor is multiplied by CPU cores to compute target RPS.
 	ConcurrencyFactor int32 `json:"concurrencyFactor"`
+
+	// WarmupDuration runs traffic against the target before the
+	// measurement window opens. Requests are sent (so TCP/TLS handshakes
+	// settle, JIT runs, caches warm) but their latencies and counters
+	// are excluded from the SLA verdict. Default 0 (no warmup).
+	// +optional
+	WarmupDuration *metav1.Duration `json:"warmupDuration,omitempty"`
+
+	// Profile selects the arrival-rate shape for the measurement
+	// window. Default Constant (today's behaviour). Poisson is the
+	// recommended choice for SLA-accurate verdicts because user
+	// traffic is open-loop.
+	// +optional
+	Profile *LoadProfile `json:"profile,omitempty"`
+}
+
+// LoadProfile selects the arrival shape for the measurement window.
+// Pattern-specific knobs apply only to their named pattern.
+type LoadProfile struct {
+	// Pattern is the arrival shape.
+	// +kubebuilder:validation:Enum=Constant;Poisson;Ramp;Step;Spike
+	// +kubebuilder:default=Constant
+	Pattern string `json:"pattern"`
+
+	// EndRPS is the terminal rate for Ramp. Required when Pattern=Ramp.
+	// +optional
+	EndRPS *int32 `json:"endRps,omitempty"`
+
+	// RampDuration is the wall-clock window over which Ramp interpolates
+	// from BaseRPS to EndRPS. Required when Pattern=Ramp.
+	// +optional
+	RampDuration *metav1.Duration `json:"rampDuration,omitempty"`
+
+	// StepRPS is the rate increment per StepDuration interval. Required
+	// when Pattern=Step.
+	// +optional
+	StepRPS *int32 `json:"stepRps,omitempty"`
+
+	// StepDuration is the wall-clock interval between Step climbs.
+	// Required when Pattern=Step.
+	// +optional
+	StepDuration *metav1.Duration `json:"stepDuration,omitempty"`
+
+	// Spikes is the ordered list of spike windows to stitch into the
+	// measurement phase. Required when Pattern=Spike.
+	// +optional
+	Spikes []SpikeWindow `json:"spikes,omitempty"`
+}
+
+// SpikeWindow describes a single rate-elevated slice inside a Spike
+// measurement phase. At is measured from the start of the measurement
+// phase (post-warmup). Spikes are inserted between Constant base slices
+// at BaseRPS, so the resulting phase list is constant-spike-constant-...
+type SpikeWindow struct {
+	// At is the offset from measurement-phase start at which the spike
+	// begins.
+	At metav1.Duration `json:"at"`
+	// Duration is the wall-clock length of the spike.
+	Duration metav1.Duration `json:"duration"`
+	// RPS is the rate held during the spike. Must be > BaseRPS or the
+	// "spike" would actually be a dip.
+	RPS int32 `json:"rps"`
 }
 
 // DisruptionConfig controls chaos injection during the validation run.

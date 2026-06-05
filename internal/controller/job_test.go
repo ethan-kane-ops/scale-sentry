@@ -166,7 +166,10 @@ func TestResolveTargetURL_AutoDiscoverProbeMissing(t *testing.T) {
 }
 
 func TestLoadgenArgs(t *testing.T) {
-	args := loadgenArgs(testCR(nil), "http://app.demo.svc.cluster.local:8080/", "")
+	args, err := loadgenArgs(testCR(nil), "http://app.demo.svc.cluster.local:8080/", "")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
 	want := map[string]string{
 		"--url":             "http://app.demo.svc.cluster.local:8080/",
 		"--rps":             "150",
@@ -189,7 +192,10 @@ func TestLoadgenArgs_TLSInsecureSkipVerify(t *testing.T) {
 	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{InsecureSkipVerify: true}
 	})
-	args := loadgenArgs(cr, "https://app.demo.svc.cluster.local:8443/", "")
+	args, err := loadgenArgs(cr, "https://app.demo.svc.cluster.local:8443/", "")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
 	if !slices.Contains(args, "--tls-insecure-skip-verify") {
 		t.Errorf("missing --tls-insecure-skip-verify in args: %v", args)
 	}
@@ -203,7 +209,10 @@ func TestLoadgenArgs_TLSCABundle(t *testing.T) {
 			},
 		}
 	})
-	args := loadgenArgs(cr, "https://app.demo.svc.cluster.local:8443/", "/etc/scale-sentry/tls-ca/ca.crt")
+	args, err := loadgenArgs(cr, "https://app.demo.svc.cluster.local:8443/", "/etc/scale-sentry/tls-ca/ca.crt")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
 	assertFlags(t, args, map[string]string{
 		"--tls-ca-bundle": "/etc/scale-sentry/tls-ca/ca.crt",
 	})
@@ -240,7 +249,10 @@ func TestBuildLoadgenJob(t *testing.T) {
 		ObserverImage:          "registry.test/observer:v1",
 		ObserverServiceAccount: "scale-sentry-observer",
 	}
-	job := r.buildLoadgenJob(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
+	job, err := r.buildLoadgenJob(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
+	if err != nil {
+		t.Fatalf("buildLoadgenJob: %v", err)
+	}
 
 	if job.Name != "run-loadgen" || job.Namespace != "demo" {
 		t.Errorf("job identity = %s/%s, want demo/run-loadgen", job.Namespace, job.Name)
@@ -297,7 +309,10 @@ func TestBuildLoadgenJob_PSARestrictedHardening(t *testing.T) {
 		ObserverImage:          "registry.test/observer:v1",
 		ObserverServiceAccount: "scale-sentry-observer",
 	}
-	job := r.buildLoadgenJob(testCR(nil), "http://h:80/")
+	job, err := r.buildLoadgenJob(testCR(nil), "http://h:80/")
+	if err != nil {
+		t.Fatalf("buildLoadgenJob: %v", err)
+	}
 	pod := job.Spec.Template.Spec
 
 	if pod.SecurityContext == nil {
@@ -346,7 +361,10 @@ func TestBuildLoadgenJob_TLSCABundleMount(t *testing.T) {
 			},
 		}
 	})
-	job := r.buildLoadgenJob(cr, "https://app.demo.svc.cluster.local:8443/")
+	job, err := r.buildLoadgenJob(cr, "https://app.demo.svc.cluster.local:8443/")
+	if err != nil {
+		t.Fatalf("buildLoadgenJob: %v", err)
+	}
 
 	pod := job.Spec.Template.Spec
 	var caVol *corev1.Volume

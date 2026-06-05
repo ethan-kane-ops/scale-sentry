@@ -1,0 +1,30 @@
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: billing-rampload-validation
+  namespace: production
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: billing-service
+
+  sla: 5m
+
+  target:
+    mode: ServiceDefault
+    port: 8080
+    networkPath: ClusterIP
+
+  load:
+    baseRps: 100
+    concurrencyFactor: 50
+    # 30s warmup phase: requests are sent so TCP/TLS slow-start, JIT, and
+    # caches settle, but their latencies are excluded from the SLA verdict.
+    warmupDuration: 30s
+    profile:
+      # Linearly ramp from baseRps (100) to endRps (500) across the
+      # measurement window (sla - warmupDuration = 4m30s). Surfaces the
+      # rate at which HPA reacts as load monotonically climbs.
+      pattern: Ramp
+      endRps: 500

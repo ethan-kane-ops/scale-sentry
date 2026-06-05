@@ -190,58 +190,95 @@ func TestGeneratorRun_ShortLivedConnectionMode(t *testing.T) {
 	}
 }
 
-func TestBuildLimiters(t *testing.T) {
-	tests := []struct {
-		name            string
-		targetRPS       int
-		stripes         int
-		wantCount       int
-		wantTotalRate   float64
-		wantPerBurstMin int
-	}{
-		{
-			name:            "default stripe count",
-			targetRPS:       1000,
-			stripes:         8,
-			wantCount:       8,
-			wantTotalRate:   1000,
-			wantPerBurstMin: 1,
+// TestGeneratorRun_WarmupExcludedFromHistogram asserts that requests sent
+// during a phase with RecordStats=false are dispatched against the target
+// (so caches / TLS / JIT warm up) but absent from the latency histogram +
+// counters used for the SLA verdict.
+func TestGeneratorRun_WarmupExcludedFromHistogram(t *testing.T) {
+	var hits int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt64(&hits, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	g, err := New(Config{
+		URL:            srv.URL + "/",
+		ConnectionMode: KeepAlive,
+		Phases: []Phase{
+			{Name: WarmupPhaseName, Pattern: PatternConstant, Duration: 400 * time.Millisecond, StartRPS: 50, RecordStats: false},
+			{Name: MeasurePhaseName, Pattern: PatternConstant, Duration: 400 * time.Millisecond, StartRPS: 50, RecordStats: true},
 		},
-		{
-			name:            "collapse stripes when targetRPS smaller",
-			targetRPS:       3,
-			stripes:         8,
-			wantCount:       3,
-			wantTotalRate:   3,
-			wantPerBurstMin: 1,
-		},
-		{
-			name:            "single stripe when stripes <= 0",
-			targetRPS:       100,
-			stripes:         0,
-			wantCount:       1,
-			wantTotalRate:   100,
-			wantPerBurstMin: 1,
-		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ls := buildLimiters(tt.targetRPS, tt.stripes)
-			if len(ls) != tt.wantCount {
-				t.Fatalf("len = %d, want %d", len(ls), tt.wantCount)
-			}
-			var total float64
-			for _, l := range ls {
-				total += float64(l.Limit())
-				if l.Burst() < tt.wantPerBurstMin {
-					t.Errorf("per-stripe burst = %d, want >= %d", l.Burst(), tt.wantPerBurstMin)
-				}
-			}
-			// Float division: allow tiny rounding slack.
-			if diff := total - tt.wantTotalRate; diff > 0.001 || diff < -0.001 {
-				t.Errorf("summed rate = %v, want %v", total, tt.wantTotalRate)
-			}
-		})
+	result := g.Run(context.Background())
+
+	total := atomic.LoadInt64(&hits)
+	if total == 0 {
+		t.Fatal("server saw zero requests; warmup phase didn't fire")
+	}
+	if result.Sent == 0 {
+		t.Fatal("Sent = 0; measure phase recorded nothing")
+	}
+	if int64(result.Sent) >= total {
+		t.Errorf("Sent = %d, want < server-observed %d (warmup should NOT count)", result.Sent, total)
+	}
+	if result.WarmupDuration <= 0 {
+		t.Errorf("WarmupDuration = %v, want > 0", result.WarmupDuration)
+	}
+	if result.MeasurementDuration <= 0 {
+		t.Errorf("MeasurementDuration = %v, want > 0", result.MeasurementDuration)
+	}
+	if len(result.Phases) != 2 {
+		t.Fatalf("Phases length = %d, want 2", len(result.Phases))
+	}
+	if result.Phases[0].Name != WarmupPhaseName || result.Phases[0].RecordStats {
+		t.Errorf("Phases[0] = %+v, want Warmup with RecordStats=false", result.Phases[0])
+	}
+	if !result.Phases[1].RecordStats {
+		t.Errorf("Phases[1] = %+v, want Measure with RecordStats=true", result.Phases[1])
+	}
+}
+
+// TestGeneratorRun_ScheduledArrivalLatency asserts the coordinated-omission
+// fix is real: when the target stalls (handler artificially slow), the
+// recorded latencies include the queue wait of subsequent scheduled
+// arrivals, NOT just the per-request response time. Pre-fix, every
+// recorded latency would have hovered around the handler's stall window
+// regardless of overload; the fix makes later latencies climb.
+func TestGeneratorRun_ScheduledArrivalLatency(t *testing.T) {
+	// Handler that always sleeps 200ms: a single worker can only complete
+	// 5 requests/second. Asking for 50 RPS guarantees backlog.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	g, err := New(Config{
+		URL:            srv.URL + "/",
+		TargetRPS:      50,
+		Duration:       1500 * time.Millisecond,
+		Concurrency:    4, // intentionally too small for 50 RPS at 200ms/req
+		ConnectionMode: KeepAlive,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result := g.Run(context.Background())
+
+	if result.Sent == 0 {
+		t.Fatal("Sent = 0")
+	}
+	// Under coordinated-omission-aware measurement, the tail latency
+	// must reflect the queue wait, not just the 200ms handler stall.
+	// Pre-fix p99 would have sat near the 200ms handler time; post-fix
+	// it climbs well past it as later scheduled arrivals accumulate
+	// queue depth.
+	if result.LatencyP99 < 400*time.Millisecond {
+		t.Errorf("LatencyP99 = %v, want >> 200ms handler stall (coordinated-omission fix should make tail climb under backlog)", result.LatencyP99)
 	}
 }
 

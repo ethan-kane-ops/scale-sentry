@@ -1,0 +1,27 @@
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: billing-poissonload-validation
+  namespace: production
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: billing-service
+
+  sla: 3m
+
+  target:
+    mode: ServiceDefault
+    port: 8080
+    networkPath: ClusterIP
+
+  load:
+    baseRps: 200
+    concurrencyFactor: 50
+    # Open-loop Poisson arrival: exponential inter-arrival times of mean
+    # 1/200s, matching real user traffic. p99 numbers from this profile
+    # are SLA-accurate; closed-loop constant rate systematically
+    # under-reports tail latency at high throughput.
+    profile:
+      pattern: Poisson

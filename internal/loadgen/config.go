@@ -81,6 +81,14 @@ type Config struct {
 	// store. Used for private CAs that issue ingress certs, so the
 	// loadgen can validate them without InsecureSkipVerify.
 	TLSCABundlePath string
+
+	// Phases optionally replaces the single-shot Duration/TargetRPS pair
+	// with an ordered list of arrival-rate segments (warmup, measure,
+	// spike, etc.). When set, the generator ignores Duration and
+	// TargetRPS: each Phase carries its own pattern + rate. When unset,
+	// the generator synthesizes a single Constant phase from TargetRPS +
+	// Duration so existing callers keep working unchanged.
+	Phases []Phase
 }
 
 // Validate returns an error if cfg is missing required fields or holds
@@ -99,11 +107,20 @@ func (cfg Config) Validate() error {
 	if u.Host == "" {
 		return errors.New("url host is required")
 	}
-	if cfg.TargetRPS <= 0 {
-		return fmt.Errorf("targetRPS must be > 0, got %d", cfg.TargetRPS)
-	}
-	if cfg.Duration <= 0 {
-		return fmt.Errorf("duration must be > 0, got %s", cfg.Duration)
+	if len(cfg.Phases) == 0 {
+		// Legacy single-shot mode: TargetRPS + Duration are required.
+		if cfg.TargetRPS <= 0 {
+			return fmt.Errorf("targetRPS must be > 0, got %d", cfg.TargetRPS)
+		}
+		if cfg.Duration <= 0 {
+			return fmt.Errorf("duration must be > 0, got %s", cfg.Duration)
+		}
+	} else {
+		for i, p := range cfg.Phases {
+			if err := p.Validate(); err != nil {
+				return fmt.Errorf("phase[%d]: %w", i, err)
+			}
+		}
 	}
 	switch cfg.ConnectionMode {
 	case KeepAlive, ShortLived:
@@ -121,6 +138,9 @@ func (cfg Config) Validate() error {
 }
 
 // withDefaults returns a copy of cfg with zero-value defaults filled in.
+// When Phases is empty, a single Constant phase is synthesized from
+// TargetRPS + Duration so the rest of the generator can operate on a
+// uniform phase list regardless of how the caller specified the load.
 func (cfg Config) withDefaults() Config {
 	if cfg.Method == "" {
 		cfg.Method = http.MethodGet
@@ -128,8 +148,23 @@ func (cfg Config) withDefaults() Config {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 5 * time.Second
 	}
+	if len(cfg.Phases) == 0 {
+		cfg.Phases = []Phase{{
+			Name:        MeasurePhaseName,
+			Pattern:     PatternConstant,
+			Duration:    cfg.Duration,
+			StartRPS:    cfg.TargetRPS,
+			RecordStats: true,
+		}}
+	}
 	if cfg.Concurrency == 0 {
-		cfg.Concurrency = cfg.TargetRPS
+		peak := 0
+		for _, p := range cfg.Phases {
+			if r := p.peakRPS(); r > peak {
+				peak = r
+			}
+		}
+		cfg.Concurrency = peak
 		if cfg.Concurrency > 256 {
 			cfg.Concurrency = 256
 		}
