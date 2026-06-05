@@ -125,3 +125,111 @@ func TestBuildPhases_WarmupExceedsSLARejected(t *testing.T) {
 		t.Error("expected error when warmupDuration >= SLA")
 	}
 }
+
+func TestBuildPhases_PoissonOK(t *testing.T) {
+	cr := crWithLoad(v1alpha1.LoadConfig{
+		BaseRPS: 100,
+		Profile: &v1alpha1.LoadProfile{Pattern: "Poisson"},
+	}, time.Minute)
+	phases, err := buildPhases(cr)
+	if err != nil {
+		t.Fatalf("buildPhases: %v", err)
+	}
+	if len(phases) != 1 || phases[0].Pattern != loadgen.PatternPoisson {
+		t.Errorf("phases = %+v, want one Poisson phase", phases)
+	}
+}
+
+func TestBuildPhases_StepOK(t *testing.T) {
+	stepRPS := int32(50)
+	stepDur := metav1.Duration{Duration: 15 * time.Second}
+	cr := crWithLoad(v1alpha1.LoadConfig{
+		BaseRPS: 100,
+		Profile: &v1alpha1.LoadProfile{
+			Pattern:      "Step",
+			StepRPS:      &stepRPS,
+			StepDuration: &stepDur,
+		},
+	}, time.Minute)
+	phases, err := buildPhases(cr)
+	if err != nil {
+		t.Fatalf("buildPhases: %v", err)
+	}
+	if len(phases) != 1 || phases[0].Pattern != loadgen.PatternStep {
+		t.Fatalf("phases = %+v, want one Step phase", phases)
+	}
+	if phases[0].StepRPS != 50 || phases[0].StepEvery != 15*time.Second {
+		t.Errorf("step phase = %+v, want StepRPS=50 / StepEvery=15s", phases[0])
+	}
+}
+
+func TestBuildPhases_StepRequiresStepRPSAndDuration(t *testing.T) {
+	stepRPS := int32(50)
+	cr := crWithLoad(v1alpha1.LoadConfig{
+		BaseRPS: 100,
+		Profile: &v1alpha1.LoadProfile{
+			Pattern: "Step",
+			StepRPS: &stepRPS, // missing StepDuration
+		},
+	}, time.Minute)
+	if _, err := buildPhases(cr); err == nil {
+		t.Error("expected error when Step missing stepDuration")
+	}
+}
+
+func TestBuildPhases_UnknownPatternRejected(t *testing.T) {
+	cr := crWithLoad(v1alpha1.LoadConfig{
+		BaseRPS: 100,
+		Profile: &v1alpha1.LoadProfile{Pattern: "Lognormal"},
+	}, time.Minute)
+	if _, err := buildPhases(cr); err == nil {
+		t.Error("expected error for unknown pattern")
+	}
+}
+
+func TestBuildPhases_SpikeOverlapRejected(t *testing.T) {
+	cr := crWithLoad(v1alpha1.LoadConfig{
+		BaseRPS: 50,
+		Profile: &v1alpha1.LoadProfile{
+			Pattern: "Spike",
+			Spikes: []v1alpha1.SpikeWindow{
+				{At: metav1.Duration{Duration: 10 * time.Second}, Duration: metav1.Duration{Duration: 5 * time.Second}, RPS: 200},
+				// Second spike starts BEFORE the first ends.
+				{At: metav1.Duration{Duration: 12 * time.Second}, Duration: metav1.Duration{Duration: 3 * time.Second}, RPS: 300},
+			},
+		},
+	}, time.Minute)
+	if _, err := buildPhases(cr); err == nil {
+		t.Error("expected error for overlapping spike windows")
+	}
+}
+
+func TestBuildPhases_SpikePastWindowRejected(t *testing.T) {
+	cr := crWithLoad(v1alpha1.LoadConfig{
+		BaseRPS: 50,
+		Profile: &v1alpha1.LoadProfile{
+			Pattern: "Spike",
+			Spikes: []v1alpha1.SpikeWindow{
+				// Spike ends past the SLA window.
+				{At: metav1.Duration{Duration: 55 * time.Second}, Duration: metav1.Duration{Duration: 10 * time.Second}, RPS: 200},
+			},
+		},
+	}, time.Minute)
+	if _, err := buildPhases(cr); err == nil {
+		t.Error("expected error when spike extends past measurement window")
+	}
+}
+
+func TestPhasesJSON_RoundTrip(t *testing.T) {
+	in := []loadgen.Phase{
+		{Name: "warm", Pattern: loadgen.PatternConstant, Duration: time.Second, StartRPS: 10},
+		{Name: "measure", Pattern: loadgen.PatternPoisson, Duration: 2 * time.Second, StartRPS: 25, RecordStats: true},
+	}
+	js, err := phasesJSON(in)
+	if err != nil {
+		t.Fatalf("phasesJSON: %v", err)
+	}
+	if js == "" {
+		t.Fatal("phasesJSON returned empty string")
+	}
+}
