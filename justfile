@@ -51,9 +51,17 @@ test:
 test-race:
     go test -race ./...
 
-# Run unit tests with coverage, writing coverage.out (consumed by CI/codecov)
-cover:
-    go test -covermode=atomic -coverprofile=coverage.out ./...
+# Run unit + envtest with coverage, writing coverage.out (consumed by CI/codecov).
+# -coverpkg widens attribution so envtest reconciler exercise counts toward the
+# controller package and so cross-package calls (e.g. loadgen → metrics) score
+# the callee, matching karpenter/cilium/tekton convention.
+cover: tools
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KUBEBUILDER_ASSETS="$(setup-envtest use -p path)"
+    go test -tags envtest -covermode=atomic \
+        -coverpkg=./internal/...,./api/... \
+        -coverprofile=coverage.out ./...
     go tool cover -func=coverage.out | tail -1
 
 # Run the envtest integration suite (downloads apiserver/etcd assets on first run)

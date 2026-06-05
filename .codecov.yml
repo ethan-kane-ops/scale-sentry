@@ -1,0 +1,68 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.5%
+        informational: false
+    patch:
+      default:
+        target: 70%
+        threshold: 0.5%
+        informational: false
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "api/**/zz_generated.*.go"
+  - "cmd/**/main.go"
+  - "**/suite_test.go"
+  - "config/**"
+  - "docs/**"
+  - "hack/**"
+  - "test/e2e/**"
+  - "charts/**"
+  - "**/*_test.go"
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 0.5%
+  individual_components:
+    - component_id: loadgen
+      name: loadgen
+      paths:
+        - "internal/loadgen/**"
+      statuses:
+        - type: project
+          target: 80%
+          threshold: 0.5%
+    - component_id: controller
+      name: controller
+      paths:
+        - "internal/controller/**"
+      statuses:
+        - type: project
+          target: 75%
+          threshold: 0.5%
+    - component_id: analyzers
+      name: analyzers
+      paths:
+        - "internal/analyzer/**"
+      statuses:
+        - type: project
+          target: 80%
+          threshold: 0.5%
+    - component_id: observer
+      name: observer
+      paths:
+        - "internal/observer/**"
+      statuses:
+        - type: project
+          target: 70%
+          threshold: 0.5%
