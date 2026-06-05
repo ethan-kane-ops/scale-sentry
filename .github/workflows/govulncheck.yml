@@ -1,15 +1,14 @@
 name: govulncheck
 
+# Vuln DB updates daily; per-PR gating churns trivial PRs whenever a new
+# stdlib CVE drops (see ENG-55..60 stack burn). Run on push to main + daily
+# cron, plus on-demand. cert-manager + external-secrets convention.
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
-    # Weekly backstop so a newly-disclosed CVE on an existing pin is caught
-    # without requiring a code change. Mondays 04:17 UTC (off-hours, off
-    # the top-of-the-hour stampede).
-    - cron: "17 4 * * 1"
+    - cron: "17 4 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: govulncheck-${{ github.workflow }}-${{ github.ref }}
@@ -28,10 +27,7 @@ jobs:
         cmd: [scale-sentry, loadgen, observer]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        with:
-          go-version-file: go.mod
-          cache: true
+      - uses: ./.github/actions/setup
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Scan ./cmd/${{ matrix.cmd }}

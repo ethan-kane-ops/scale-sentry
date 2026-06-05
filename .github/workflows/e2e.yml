@@ -1,0 +1,103 @@
+name: E2E
+
+# Gated on demand:
+#   workflow_dispatch: manual UI / gh CLI trigger
+#   pull_request labeled with "run-e2e": reviewer opts in
+#   nightly cron: regression backstop
+# Not on every push/PR (cf. ENG-62) — kind smoke is 8-10 minutes and blocks
+# trivial doc/refactor PRs disproportionately.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 5 * * *"
+  pull_request:
+    types: [labeled]
+    branches: [main]
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-images:
+    name: build images
+    if: github.event_name != 'pull_request' || github.event.label.name == 'run-e2e'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Tag controller as plain `scale-sentry:dev` to match the chart's
+          # default image.repository (just deploy override pattern).
+          - cmd: scale-sentry
+            image: scale-sentry
+          - cmd: loadgen
+            image: scale-sentry-loadgen
+          - cmd: observer
+            image: scale-sentry-observer
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          build-args: |
+            CMD=${{ matrix.cmd }}
+          tags: ${{ matrix.image }}:dev
+          push: false
+          outputs: type=docker,dest=/tmp/${{ matrix.image }}.tar
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4.4.3
+        with:
+          name: image-${{ matrix.cmd }}
+          path: /tmp/${{ matrix.image }}.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  e2e:
+    name: kind smoke E2E
+    needs: build-images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/setup
+      - name: Cache kind node image
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.cache/kind
+          key: kind-node-${{ runner.os }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: image-*
+          path: /tmp/images
+          merge-multiple: true
+      - name: Load images locally
+        run: |
+          for tar in /tmp/images/*.tar; do
+            docker load -i "$tar"
+          done
+          docker image ls scale-sentry-*
+      - name: Pre-warm hpa-example image
+        run: docker pull registry.k8s.io/hpa-example
+      - name: Create kind cluster
+        run: kind create cluster --name scale-sentry-e2e
+      - name: Load images into kind
+        run: |
+          kind load docker-image --name scale-sentry-e2e \
+            scale-sentry:dev \
+            scale-sentry-loadgen:dev \
+            scale-sentry-observer:dev \
+            registry.k8s.io/hpa-example
+      - name: Helm install chart
+        run: |
+          helm upgrade --install scale-sentry charts/scale-sentry \
+            --set controller.image.repository=scale-sentry \
+            --set controller.image.tag=dev \
+            --set loadgenImage=scale-sentry-loadgen:dev \
+            --set observerImage=scale-sentry-observer:dev
+          kubectl wait --for=condition=Available --timeout=120s \
+            -n default deployment/scale-sentry-controller
+      - name: Run E2E suite
+        run: go test -tags e2e -count=1 -timeout=15m ./test/e2e/...
