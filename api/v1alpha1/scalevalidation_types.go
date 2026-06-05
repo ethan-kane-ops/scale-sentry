@@ -36,22 +36,43 @@ type TargetConfig struct {
 	// +kubebuilder:default=ClusterIP
 	NetworkPath string `json:"networkPath"`
 
-	// Protocol selects the HTTP wire protocol the loadgen speaks to
-	// the target. HTTP1 uses fasthttp (default, backwards-compatible).
+	// Protocol selects the wire protocol the loadgen speaks to the
+	// target. HTTP1 uses fasthttp (default, backwards-compatible).
 	// HTTP2 uses net/http + http2.Transport: ALPN-negotiated h2 for
-	// https URLs, prior-knowledge h2c for http URLs. Use HTTP2 when
-	// the target is a gRPC service, an envoy-fronted backend, or any
-	// workload whose scaling characteristics depend on stream
-	// multiplexing rather than per-request connection cost.
-	// +kubebuilder:validation:Enum=HTTP1;HTTP2
+	// https URLs, prior-knowledge h2c for http URLs. GRPC uses grpc-go
+	// to invoke the standard grpc.health.v1.Health/Check probe; combine
+	// with the optional GRPC block to scope the probe to a specific
+	// upstream service.
+	// +kubebuilder:validation:Enum=HTTP1;HTTP2;GRPC
 	// +kubebuilder:default=HTTP1
 	// +optional
 	Protocol string `json:"protocol,omitempty"`
+
+	// GRPC carries gRPC-specific knobs. Only consulted when Protocol=GRPC;
+	// ignored otherwise. Empty (or unset) means probe overall server
+	// health on the resolved Service host:port.
+	// +optional
+	GRPC *GRPCConfig `json:"grpc,omitempty"`
 
 	// TLS configures HTTPS verification for the loadgen client. Only
 	// applies when the resolved target URL uses the https scheme.
 	// +optional
 	TLS *TLSConfig `json:"tls,omitempty"`
+}
+
+// GRPCConfig carries gRPC-specific knobs for the loadgen Health/Check
+// probe. Scoped intentionally narrow: the goal is to exercise h2 framing,
+// gRPC trailers, and server-side request handling at the rate the load
+// profile dictates, not to drive arbitrary RPC methods. Reflection-based
+// method discovery and unary-RPC invocation against arbitrary user
+// services are deferred to a future ticket.
+type GRPCConfig struct {
+	// Service is the upstream service name passed to the Health/Check
+	// probe (grpc.health.v1.HealthCheckRequest.service). Empty probes
+	// overall server health. Use a non-empty value when the target
+	// publishes multiple per-service health entries.
+	// +optional
+	Service string `json:"service,omitempty"`
 }
 
 // TLSConfig configures TLS verification for the loadgen client.

@@ -187,6 +187,20 @@ spec:
                     description: CustomPath is the explicit HTTP path to target. Used
                       when mode is CustomPath.
                     type: string
+                  grpc:
+                    description: |-
+                      GRPC carries gRPC-specific knobs. Only consulted when Protocol=GRPC;
+                      ignored otherwise. Empty (or unset) means probe overall server
+                      health on the resolved Service host:port.
+                    properties:
+                      service:
+                        description: |-
+                          Service is the upstream service name passed to the Health/Check
+                          probe (grpc.health.v1.HealthCheckRequest.service). Empty probes
+                          overall server health. Use a non-empty value when the target
+                          publishes multiple per-service health entries.
+                        type: string
+                    type: object
                   mode:
                     description: Mode determines how the load test target is resolved.
                     enum:
@@ -212,16 +226,17 @@ spec:
                   protocol:
                     default: HTTP1
                     description: |-
-                      Protocol selects the HTTP wire protocol the loadgen speaks to
-                      the target. HTTP1 uses fasthttp (default, backwards-compatible).
+                      Protocol selects the wire protocol the loadgen speaks to the
+                      target. HTTP1 uses fasthttp (default, backwards-compatible).
                       HTTP2 uses net/http + http2.Transport: ALPN-negotiated h2 for
-                      https URLs, prior-knowledge h2c for http URLs. Use HTTP2 when
-                      the target is a gRPC service, an envoy-fronted backend, or any
-                      workload whose scaling characteristics depend on stream
-                      multiplexing rather than per-request connection cost.
+                      https URLs, prior-knowledge h2c for http URLs. GRPC uses grpc-go
+                      to invoke the standard grpc.health.v1.Health/Check probe; combine
+                      with the optional GRPC block to scope the probe to a specific
+                      upstream service.
                     enum:
                     - HTTP1
                     - HTTP2
+                    - GRPC
                     type: string
                   tls:
                     description: |-

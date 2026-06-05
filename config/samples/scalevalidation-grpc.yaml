@@ -1,0 +1,35 @@
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: orders-grpc-validation
+  namespace: production
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orders-service
+
+  sla: 3m
+
+  target:
+    mode: ServiceDefault
+    port: 9090
+    networkPath: ClusterIP
+    # GRPC drives the grpc.health.v1.Health/Check probe against the
+    # target Service. The Service URL is built from .targetRef.name +
+    # .target.port; gRPC ignores the URL path. http:// dials cleartext
+    # (h2c framing direct over TCP); https:// dials TLS with the loadgen
+    # TLS config. The target Deployment must register the standard
+    # grpc.health.v1.Health service (one-line stdlib helper for grpc-go,
+    # equivalent for grpc-java/grpc-python).
+    protocol: GRPC
+    grpc:
+      # Optional. Scopes the probe to a single per-service health entry.
+      # Empty (or omit grpc:) probes overall server health.
+      service: orders.v1.Orders
+
+  load:
+    baseRps: 200
+    concurrencyFactor: 50
+    profile:
+      pattern: Poisson

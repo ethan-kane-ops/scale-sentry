@@ -29,6 +29,13 @@ type Protocol string
 const (
 	ProtocolHTTP1 Protocol = "HTTP1"
 	ProtocolHTTP2 Protocol = "HTTP2"
+	// ProtocolGRPC dispatches each request as a
+	// grpc.health.v1.Health/Check unary call via grpc-go. The cfg URL's
+	// host:port is the gRPC server endpoint; the path is ignored.
+	// Cleartext URLs (http://) dial plain TCP; https:// URLs dial with
+	// the loadgen TLS config. The optional GRPCService scopes the
+	// probe to a single per-service health entry.
+	ProtocolGRPC Protocol = "GRPC"
 )
 
 // TargetMode mirrors api/v1alpha1.TargetConfig.Mode for result tagging.
@@ -94,11 +101,18 @@ type Config struct {
 	// loadgen can validate them without InsecureSkipVerify.
 	TLSCABundlePath string
 
-	// Protocol selects the HTTP wire protocol. Defaults to ProtocolHTTP1
+	// Protocol selects the wire protocol. Defaults to ProtocolHTTP1
 	// (fasthttp). ProtocolHTTP2 swaps in a net/http + http2.Transport
-	// client. The underlying client implementation honors the same
-	// Timeout, Headers, Method, ConnectionMode, and TLS* fields.
+	// client. ProtocolGRPC swaps in a grpc-go client that drives the
+	// standard health probe. All clients honor the same Timeout,
+	// Headers, ConnectionMode, and TLS* fields where the protocol
+	// supports them (HTTP-only knobs are silently no-ops on gRPC).
 	Protocol Protocol
+
+	// GRPCService is the upstream service name passed to the gRPC
+	// Health/Check probe (HealthCheckRequest.service). Empty probes
+	// overall server health. Consulted only when Protocol=GRPC.
+	GRPCService string
 
 	// Phases optionally replaces the single-shot Duration/TargetRPS pair
 	// with an ordered list of arrival-rate segments (warmup, measure,
@@ -148,7 +162,7 @@ func (cfg Config) Validate() error {
 		return fmt.Errorf("unknown connectionMode %q", cfg.ConnectionMode)
 	}
 	switch cfg.Protocol {
-	case "", ProtocolHTTP1, ProtocolHTTP2:
+	case "", ProtocolHTTP1, ProtocolHTTP2, ProtocolGRPC:
 	default:
 		return fmt.Errorf("unknown protocol %q", cfg.Protocol)
 	}

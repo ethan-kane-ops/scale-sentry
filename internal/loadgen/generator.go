@@ -299,10 +299,17 @@ func (c *collector) finalize(cfg Config) Result {
 	if cfg.NetworkPath != "" {
 		labels["networkPath"] = string(cfg.NetworkPath)
 	}
-	if cfg.Protocol == ProtocolHTTP2 {
+	switch cfg.Protocol {
+	case ProtocolHTTP2:
 		labels["goAwayCount"] = fmt.Sprintf("%d", c.clientStats.GoAwayCount)
 		labels["connsOpened"] = fmt.Sprintf("%d", c.clientStats.ConnsOpened)
 		labels["streamsIssued"] = fmt.Sprintf("%d", c.clientStats.StreamsIssued)
+	case ProtocolGRPC:
+		labels["connsOpened"] = fmt.Sprintf("%d", c.clientStats.ConnsOpened)
+		labels["streamsIssued"] = fmt.Sprintf("%d", c.clientStats.StreamsIssued)
+		if cfg.GRPCService != "" {
+			labels["grpcService"] = cfg.GRPCService
+		}
 	}
 	var warmup, measure time.Duration
 	for _, ps := range c.phases {

@@ -148,6 +148,9 @@ func loadgenArgs(cr *v1alpha1.ScaleValidation, url, caBundlePath string) ([]stri
 	if proto := cr.Spec.Target.Protocol; proto != "" {
 		args = append(args, "--protocol", proto)
 	}
+	if g := cr.Spec.Target.GRPC; g != nil && g.Service != "" {
+		args = append(args, "--grpc-service", g.Service)
+	}
 	phases, err := buildPhases(cr)
 	if err != nil {
 		return nil, err
