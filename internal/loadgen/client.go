@@ -58,6 +58,8 @@ func newProtocolClient(cfg Config) (protocolClient, error) {
 		return newH1Client(cfg)
 	case ProtocolHTTP2:
 		return newH2Client(cfg)
+	case ProtocolGRPC:
+		return newGRPCClient(cfg)
 	default:
 		return nil, fmt.Errorf("unknown protocol %q", cfg.Protocol)
 	}
