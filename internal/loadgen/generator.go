@@ -2,14 +2,11 @@ package loadgen
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
-	"github.com/valyala/fasthttp"
 )
 
 // Latency histogram bounds. 1µs..60s with 3 significant figures matches
@@ -24,11 +21,11 @@ const (
 )
 
 // Generator drives a single concurrent prober run. One Generator runs
-// exactly one URL with one ConnectionMode, re-use across runs is not
-// supported.
+// exactly one URL with one ConnectionMode and one Protocol; re-use
+// across runs is not supported.
 type Generator struct {
 	cfg    Config
-	client *fasthttp.Client
+	client protocolClient
 }
 
 // New constructs a Generator. Validates cfg and returns any error encountered.
@@ -37,7 +34,7 @@ func New(cfg Config) (*Generator, error) {
 		return nil, err
 	}
 	cfg = cfg.withDefaults()
-	client, err := newClient(cfg)
+	client, err := newProtocolClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build client: %w", err)
 	}
@@ -71,6 +68,7 @@ func (g *Generator) Run(ctx context.Context) Result {
 	}
 
 	collector.end = time.Now()
+	collector.clientStats = g.client.Stats()
 	return collector.finalize(g.cfg)
 }
 
@@ -118,7 +116,9 @@ func (g *Generator) worker(ctx context.Context, wg *sync.WaitGroup, c *collector
 // do issues one request and records its outcome against c. The latency
 // clock starts at slot.Time (the scheduled arrival), so a stalled target
 // that backs the workers up will show up as elevated latency rather than
-// hidden queue depth (the coordinated-omission fix).
+// hidden queue depth (the coordinated-omission fix). The actual wire
+// dispatch is delegated to g.client (HTTP/1 via fasthttp or HTTP/2 via
+// net/http + http2.Transport).
 func (g *Generator) do(ctx context.Context, c *collector, phase *Phase, slot scheduledArrival) {
 	// If we're early, hold the request until its scheduled instant. This
 	// keeps the arrival distribution honest under low CPU contention; if
@@ -131,21 +131,7 @@ func (g *Generator) do(ctx context.Context, c *collector, phase *Phase, slot sch
 		}
 	}
 
-	req := fasthttp.AcquireRequest()
-	resp := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(resp)
-
-	req.SetRequestURI(g.cfg.URL)
-	req.Header.SetMethod(g.cfg.Method)
-	for k, v := range g.cfg.Headers {
-		req.Header.Set(k, v)
-	}
-	if g.cfg.ConnectionMode == ShortLived {
-		req.Header.SetConnectionClose()
-	}
-
-	err := g.client.DoTimeout(req, resp, g.cfg.Timeout)
+	status, err := g.client.Do(ctx)
 	completion := time.Now()
 	latency := completion.Sub(slot.Time)
 	if latency < 0 {
@@ -169,27 +155,7 @@ func (g *Generator) do(ctx context.Context, c *collector, phase *Phase, slot sch
 		c.recordError(classify(err), latency, completion)
 		return
 	}
-	c.recordStatus(resp.StatusCode(), latency, completion)
-}
-
-// classify maps a fasthttp error to an ErrorCategory.
-func classify(err error) ErrorCategory {
-	if err == nil {
-		return ErrOther
-	}
-	if errors.Is(err, fasthttp.ErrTimeout) || errors.Is(err, fasthttp.ErrDialTimeout) {
-		return ErrTimeout
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "connection reset"):
-		return ErrConnReset
-	case strings.Contains(msg, "tls:"), strings.Contains(msg, "x509:"):
-		return ErrTLS
-	case strings.Contains(msg, "dial"), strings.Contains(msg, "no such host"):
-		return ErrDial
-	}
-	return ErrOther
+	c.recordStatus(status, latency, completion)
 }
 
 // collector aggregates per-request outcomes under a mutex. The Generator
@@ -214,6 +180,11 @@ type collector struct {
 	// Per-phase summaries written into Result.Phases. Indexed in phase
 	// declaration order so callers can correlate against cfg.Phases.
 	phases []PhaseSummary
+
+	// clientStats is the final post-run snapshot from the
+	// protocolClient (GOAWAY count, streams/conn) attached by Run()
+	// before finalize.
+	clientStats ClientStats
 }
 
 func newCollector() *collector {
@@ -320,12 +291,18 @@ func (c *collector) finalize(cfg Config) Result {
 	}
 	labels := map[string]string{
 		"connectionMode": string(cfg.ConnectionMode),
+		"protocol":       string(cfg.Protocol),
 	}
 	if cfg.TargetMode != "" {
 		labels["targetMode"] = string(cfg.TargetMode)
 	}
 	if cfg.NetworkPath != "" {
 		labels["networkPath"] = string(cfg.NetworkPath)
+	}
+	if cfg.Protocol == ProtocolHTTP2 {
+		labels["goAwayCount"] = fmt.Sprintf("%d", c.clientStats.GoAwayCount)
+		labels["connsOpened"] = fmt.Sprintf("%d", c.clientStats.ConnsOpened)
+		labels["streamsIssued"] = fmt.Sprintf("%d", c.clientStats.StreamsIssued)
 	}
 	var warmup, measure time.Duration
 	for _, ps := range c.phases {
