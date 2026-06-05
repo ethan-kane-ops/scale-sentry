@@ -1,0 +1,24 @@
+# HTTP/2 cleartext (h2c) against the whoami-h2 Service ClusterIP. The
+# loadgen dials http:// and switches into h2c prior-knowledge framing
+# because spec.target.protocol=HTTP2.
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: e2e-http2-clusterip
+  namespace: scale-sentry-e2e
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: whoami-h2
+  sla: 2m
+  target:
+    mode: ServiceDefault
+    port: 80
+    networkPath: ClusterIP
+    protocol: HTTP2
+  load:
+    baseRps: 200
+    concurrencyFactor: 50
+    profile:
+      pattern: Poisson

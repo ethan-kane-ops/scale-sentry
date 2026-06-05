@@ -30,11 +30,22 @@ type TargetConfig struct {
 
 	// NetworkPath determines the routing pathway for load traffic.
 	// ClusterIP sends traffic directly to the Service inside the cluster.
-	// Ingress sends traffic through the edge Ingress controller.
-	// Only one pathway runs per validation to isolate variables.
-	// +kubebuilder:validation:Enum=ClusterIP;Ingress
+	// Ingress sends traffic through a classic Ingress controller (legacy
+	// path, prefer Gateway for new deployments). Gateway sends traffic
+	// through a Gateway API edge (Envoy Gateway and friends). Only one
+	// pathway runs per validation to isolate variables.
+	// +kubebuilder:validation:Enum=ClusterIP;Ingress;Gateway
 	// +kubebuilder:default=ClusterIP
 	NetworkPath string `json:"networkPath"`
+
+	// Host overrides the URL host the loadgen Job hits. Empty (default)
+	// resolves to "<targetRef.name>.<namespace>.svc.cluster.local",
+	// which is correct for ClusterIP runs against a Service that shares
+	// the workload name. Set this to point load through an edge: e.g.
+	// the Envoy Gateway address for a Gateway run, or the Ingress LB
+	// hostname for the legacy Ingress path.
+	// +optional
+	Host string `json:"host,omitempty"`
 
 	// Protocol selects the wire protocol the loadgen speaks to the
 	// target. HTTP1 uses fasthttp (default, backwards-compatible).

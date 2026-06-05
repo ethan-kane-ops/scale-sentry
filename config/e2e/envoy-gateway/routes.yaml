@@ -1,0 +1,50 @@
+# HTTPRoute + GRPCRoute attaching the scale-sentry e2e targets to the
+# Envoy Gateway listeners.
+#
+# Each Route binds to the matching Gateway listener via parentRefs.name +
+# sectionName, so the protocol-to-backend mapping is unambiguous and the
+# Routes can be deleted/added independently.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: whoami-h1
+  namespace: scale-sentry-e2e
+spec:
+  parentRefs:
+    - name: scale-sentry-eg
+      sectionName: http1
+  rules:
+    - matches: [{ path: { type: PathPrefix, value: / } }]
+      backendRefs:
+        - name: whoami-h1
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: whoami-h2
+  namespace: scale-sentry-e2e
+spec:
+  parentRefs:
+    - name: scale-sentry-eg
+      sectionName: http2
+  rules:
+    - matches: [{ path: { type: PathPrefix, value: / } }]
+      backendRefs:
+        - name: whoami-h2
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: grpc-health
+  namespace: scale-sentry-e2e
+spec:
+  parentRefs:
+    - name: scale-sentry-eg
+      sectionName: grpc
+  rules:
+    - backendRefs:
+        - name: grpc-health
+          port: 50051

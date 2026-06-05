@@ -1,0 +1,68 @@
+# gRPC health-server target Deployment + Service + HPA.
+#
+# salrashid123/grpc_only_backend is a widely-cited public test image that
+# implements grpc.health.v1.Health (overall server health = SERVING) +
+# a few demo unary methods. Swap the image for your own gRPC service
+# if it registers the standard Health probe (one-line helper for
+# grpc-go: healthpb.RegisterHealthServer(srv, health.NewServer())).
+#
+# The Service marks appProtocol=grpc so Envoy Gateway routes h2 framing
+# end-to-end without falling back to HTTP/1 upstream.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-health
+  namespace: scale-sentry-e2e
+  labels: { app: grpc-health }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: grpc-health } }
+  template:
+    metadata:
+      labels: { app: grpc-health }
+    spec:
+      containers:
+        - name: grpc
+          image: salrashid123/grpc_only_backend:1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50051
+              name: grpc
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          readinessProbe:
+            tcpSocket: { port: 50051 }
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-health
+  namespace: scale-sentry-e2e
+spec:
+  selector: { app: grpc-health }
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+      appProtocol: grpc
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: grpc-health
+  namespace: scale-sentry-e2e
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: grpc-health
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

@@ -1,0 +1,25 @@
+# gRPC through Envoy Gateway. Loadgen dials the gateway :50051
+# listener; Envoy's GRPCRoute matches on h2 framing and forwards to the
+# grpc-health backend Service.
+apiVersion: validation.scale-sentry.ek.co/v1alpha1
+kind: ScaleValidation
+metadata:
+  name: e2e-grpc-gateway
+  namespace: scale-sentry-e2e
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: grpc-health
+  sla: 2m
+  target:
+    mode: ServiceDefault
+    port: 50051
+    networkPath: Gateway
+    protocol: GRPC
+    host: envoy-scale-sentry-e2e-scale-sentry-eg.envoy-gateway-system.svc.cluster.local
+  load:
+    baseRps: 200
+    concurrencyFactor: 50
+    profile:
+      pattern: Poisson
