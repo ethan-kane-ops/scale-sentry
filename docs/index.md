@@ -24,7 +24,7 @@ flowchart LR
         HPA[HorizontalPodAutoscaler]
     end
 
-    Loadgen -->|3 HTTP traffic| Service --> Pods
+    Loadgen -->|3 h1 / h2 / gRPC| Service --> Pods
     Pods -.resource usage.-> HPA
     HPA -.scales.-> Pods
 
@@ -38,16 +38,22 @@ flowchart LR
 ```
 
 1. Controller reconciles a `ScaleValidation` CR, resolving its `targetRef` and computing dynamic load characteristics.
-2. Two jobs are spawned: a Loadgen that drives HTTP traffic and an Observer that watches cluster state and scrapes cgroup metrics.
-3. The Observer correlates the Loadgen request log with EndpointSlice updates and emits a structured verdict.
-4. The verdict is written back to the CR's `status` subresource, including HPA latency, throttling, leakage diagnostics, and a pass / fail / warning band.
+2. Two jobs are spawned: a Loadgen that drives traffic and an Observer that watches cluster state and scrapes cgroup metrics.
+3. The Loadgen drives HTTP/1.1, HTTP/2, or gRPC traffic through the configured network path (`ClusterIP`, `Ingress`, or `Gateway`).
+4. The Observer correlates the Loadgen request log with EndpointSlice updates and emits a structured verdict.
+5. The verdict is written back to the CR's `status` subresource, including HPA latency, throttling, leakage diagnostics, and a pass / fail / warning band. Lifecycle Events narrate each transition for `kubectl describe`.
 
 ## Features
 
 - **Custom Resource driven**: the `validation.scale-sentry.ek.co/v1alpha1` `ScaleValidation` resource stores test configuration, SLA targets, and execution history in the resource's `status` subresource.
 - **Annotation bridge**: annotating an existing `Deployment` with `validation.scale-sentry.ek.co/enabled=true` provisions a shadow `ScaleValidation` automatically, no manifests required.
-- **Endpoint targeting modes**: three target resolution strategies (`ServiceDefault`, `AutoDiscoverProbe`, `CustomPath`) and two network paths (direct `ClusterIP` or `Ingress` gateway) to isolate scaling bottlenecks from edge bottlenecks.
+- **Three protocols**: drive HTTP/1.1, HTTP/2, or gRPC load, because validating an h2 or gRPC service with an h1 client measures the wrong thing. See [Protocols](protocols.md).
+- **Open-loop load profiles**: `Constant`, `Poisson`, `Ramp`, `Step`, and `Spike` arrival models plus a warmup phase that keeps cold-start noise out of the latency histogram. See [Load Profiles](load-profiles.md).
+- **Endpoint targeting modes**: three target resolution strategies (`ServiceDefault`, `AutoDiscoverProbe`, `CustomPath`), three network paths (`ClusterIP`, `Ingress`, `Gateway`), and an optional `host` override to isolate scaling bottlenecks from edge bottlenecks.
 - **Chaos disruption**: optionally terminates a healthy replica at peak load to test `terminationGracePeriodSeconds`, `preStop` hooks, and EndpointSlice propagation delays.
+- **Lifecycle Events**: the controller narrates every run transition, so `kubectl describe scalevalidation` explains a failure without log spelunking. See [Events](events.md).
+- **Clean teardown**: deleting a CR mid-run terminates its loadgen and observer Jobs via finalizer instead of leaving them burning traffic.
+- **TLS-aware loadgen**: custom CA bundles from a ConfigMap or opt-in `insecureSkipVerify` for self-signed edges.
 - **Diagnostic suite**:
     - **Readiness lag analyzer**: measures `PodRunning` to `PodReady` delta to detect sparse probe sampling.
     - **TCP / TLS handshake tester**: short-lived versus persistent connection pools.
