@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -784,5 +785,150 @@ func TestIntegration_TargetNotReady_TimesOut(t *testing.T) {
 	}
 	if got.Status.Diagnostics[0].Severity != "Critical" {
 		t.Errorf("severity = %q, want Critical", got.Status.Diagnostics[0].Severity)
+	}
+}
+
+// createHealthyTargetPod creates a pod labeled like the target Deployment's
+// selector and patches it Running + Ready, so chaos.HealthyPods counts it
+// as an eligible disruption victim. envtest runs no kubelet, so pod status
+// is whatever the test writes.
+func createHealthyTargetPod(t *testing.T, ns, name, app string) {
+	t.Helper()
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"app": app}},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "web", Image: "web:1"}}},
+	}
+	mustCreate(t, pod)
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	if err := k8sClient.Status().Update(context.Background(), pod); err != nil {
+		t.Fatalf("set pod status: %v", err)
+	}
+}
+
+// countAliveTargetPods returns how many app-labeled pods exist without a
+// deletionTimestamp. Unscheduled pods (no nodeName) are deleted immediately
+// by the apiserver rather than parked in Terminating, so "alive" is the
+// deletion signal that holds under both semantics.
+func countAliveTargetPods(t *testing.T, ns, app string) int {
+	t.Helper()
+	var pods corev1.PodList
+	if err := k8sClient.List(context.Background(), &pods,
+		client.InNamespace(ns), client.MatchingLabels{"app": app}); err != nil {
+		t.Fatalf("list target pods: %v", err)
+	}
+	alive := 0
+	for _, p := range pods.Items {
+		if p.DeletionTimestamp == nil {
+			alive++
+		}
+	}
+	return alive
+}
+
+// TestIntegration_Disruption_DeletesVictim drives the chaos-injection path:
+// a Running CR with spec.disruption and two healthy target pods deletes
+// exactly one victim, records the DisruptionInjected condition, and never
+// injects a second time on later reconciles.
+func TestIntegration_Disruption_DeletesVictim(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	createHealthyTargetPod(t, ns, "app-0", "app")
+	createHealthyTargetPod(t, ns, "app-1", "app")
+	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
+			InjectPodDeletion:   true,
+			MinReplicasForChaos: 2,
+		}
+	}))
+
+	reconcileCR(t, r, ns, "chaos") // empty -> Pending
+	reconcileCR(t, r, ns, "chaos") // Pending -> Running (job spawned)
+	reconcileCR(t, r, ns, "chaos") // Running + zero trigger delay -> inject
+
+	if got := countAliveTargetPods(t, ns, "app"); got != 1 {
+		t.Fatalf("alive target pods = %d, want 1 (exactly one victim deleted)", got)
+	}
+	cond := meta.FindStatusCondition(getCR(t, ns, "chaos").Status.Conditions, ConditionDisruptionInjected)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != DisruptionReasonPodDeleted {
+		t.Fatalf("DisruptionInjected condition = %+v, want True/PodDeleted", cond)
+	}
+	if got := drainEventReasons(t, r); !slices.Contains(got, EventReasonChaosInjected) {
+		t.Errorf("event reasons = %v, missing %q", got, EventReasonChaosInjected)
+	}
+
+	// The condition is the re-injection guard: another reconcile must not
+	// touch the surviving pod.
+	reconcileCR(t, r, ns, "chaos")
+	if got := countAliveTargetPods(t, ns, "app"); got != 1 {
+		t.Fatalf("alive target pods after re-reconcile = %d, want still 1", got)
+	}
+}
+
+// TestIntegration_Disruption_SkippedBelowMinReplicas asserts the safety
+// gate: one healthy replica with minReplicasForChaos=2 records a skip and
+// deletes nothing.
+func TestIntegration_Disruption_SkippedBelowMinReplicas(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	createHealthyTargetPod(t, ns, "app-0", "app")
+	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
+			InjectPodDeletion:   true,
+			MinReplicasForChaos: 2,
+		}
+	}))
+
+	reconcileCR(t, r, ns, "chaos")
+	reconcileCR(t, r, ns, "chaos")
+	reconcileCR(t, r, ns, "chaos")
+
+	if got := countAliveTargetPods(t, ns, "app"); got != 1 {
+		t.Fatalf("alive target pods = %d, want 1 (gated, nothing deleted)", got)
+	}
+	cond := meta.FindStatusCondition(getCR(t, ns, "chaos").Status.Conditions, ConditionDisruptionInjected)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != DisruptionReasonSkipped {
+		t.Fatalf("DisruptionInjected condition = %+v, want False/Skipped", cond)
+	}
+	if got := drainEventReasons(t, r); !slices.Contains(got, EventReasonChaosSkipped) {
+		t.Errorf("event reasons = %v, missing %q", got, EventReasonChaosSkipped)
+	}
+}
+
+// TestIntegration_Disruption_TriggerDelayRequeues asserts that before the
+// trigger point the reconciler requeues for the remaining delay instead of
+// injecting early.
+func TestIntegration_Disruption_TriggerDelayRequeues(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	createHealthyTargetPod(t, ns, "app-0", "app")
+	createHealthyTargetPod(t, ns, "app-1", "app")
+	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
+			InjectPodDeletion:   true,
+			MinReplicasForChaos: 2,
+			TriggerDelay:        &metav1.Duration{Duration: time.Hour},
+		}
+	}))
+
+	reconcileCR(t, r, ns, "chaos")
+	reconcileCR(t, r, ns, "chaos")
+	res, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: ns, Name: "chaos"},
+	})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if res.RequeueAfter <= 0 || res.RequeueAfter > time.Hour {
+		t.Fatalf("RequeueAfter = %s, want in (0, 1h]", res.RequeueAfter)
+	}
+	if got := countAliveTargetPods(t, ns, "app"); got != 2 {
+		t.Fatalf("alive target pods = %d, want 2 before trigger point", got)
+	}
+	if cond := meta.FindStatusCondition(getCR(t, ns, "chaos").Status.Conditions, ConditionDisruptionInjected); cond != nil {
+		t.Fatalf("DisruptionInjected condition = %+v, want absent before trigger point", cond)
 	}
 }

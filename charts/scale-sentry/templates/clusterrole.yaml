@@ -16,7 +16,7 @@ rules:
   verbs: [create, patch]
 - apiGroups: [""]
   resources: [pods]
-  verbs: [get, list, watch]
+  verbs: [delete, get, list, watch]
 - apiGroups: [apps]
   resources: [deployments]
   verbs: [get, list, watch]
