@@ -10,6 +10,8 @@ A self-contained set of test workloads and `ScaleValidation` CRs that exercise t
 
 All six target workloads are CPU-bound with HPA `min=1, max=10, target=70% CPU`, so a sustained load run will trigger scale-up while scale-sentry watches.
 
+The nightly E2E workflow runs these exact fixtures (gRPC, h2c, and the Gateway path) via `test/e2e/matrix_test.go`, so this README and CI cannot drift apart. Locally: `just test-e2e-matrix`.
+
 ## Prereqs
 
 1. A Kubernetes cluster with the metrics-server installed (HPAs need it).
@@ -44,7 +46,7 @@ kubectl -n scale-sentry-e2e get deploy,svc,hpa
 kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=scale-sentry-eg
 ```
 
-The Service name in the second command is what the `Gateway`-path validations target via `spec.target.host`. The default (`envoy-scale-sentry-e2e-scale-sentry-eg.envoy-gateway-system.svc.cluster.local`) matches the upstream Envoy Gateway naming scheme; if your install names the Service differently, edit the four `*-gateway.yaml` CRs accordingly.
+The Service name in the second command is what the `Gateway`-path validations target via `spec.target.host`. The default (`envoy-scale-sentry-e2e-scale-sentry-eg-a090755d.envoy-gateway-system.svc.cluster.local`) matches the upstream Envoy Gateway naming scheme, `envoy-<gw-ns>-<gw-name>-<hash>`, where the hash is derived from the Gateway namespace/name and is stable for these fixtures; if your install names the Service differently, edit the `*-gateway.yaml` CRs accordingly.
 
 ## Run a validation
 

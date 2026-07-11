@@ -166,6 +166,29 @@ test-e2e: kind-create kind-load deploy
     kind load docker-image --name {{kind_cluster}} registry.k8s.io/hpa-example
     go test -tags e2e -count=1 -timeout=25m ./test/e2e/...
 
+# Full scenario matrix E2E: smoke prerequisites + metrics-server + Envoy
+# Gateway + the config/e2e protocol fixtures. Nightly CI runs this; local
+# runs take ~30 min cold. Fixture images are pre-loaded into Kind so HPA
+# scale-up never stalls on docker.io pulls mid-measurement.
+test-e2e-matrix: kind-create kind-load deploy envoy-gateway
+    #!/usr/bin/env bash
+    set -euo pipefail
+    kubectl wait --for=condition=Available --timeout=120s \
+        -n default deployment/scale-sentry-controller
+    for img in registry.k8s.io/hpa-example traefik/whoami:v1.10.3 caddy:2.11.4-alpine registry.k8s.io/e2e-test-images/agnhost:2.53; do
+      docker pull "$img"
+      kind load docker-image --name {{kind_cluster}} "$img"
+    done
+    E2E_FULL_MATRIX=1 go test -tags e2e -count=1 -timeout=45m ./test/e2e/...
+
+# Install Gateway API CRDs + Envoy Gateway (versions match config/e2e/README.md)
+envoy-gateway:
+    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+    helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
+        --version v1.2.0 \
+        --namespace envoy-gateway-system --create-namespace
+    kubectl -n envoy-gateway-system rollout status deploy/envoy-gateway --timeout=180s
+
 # Install metrics-server; HPAs cannot act without it, and kind kubelets
 # serve self-signed certs so the insecure-tls patch is required.
 metrics-server:
