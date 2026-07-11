@@ -1,18 +1,4 @@
-# Artifact Hub repository metadata.
-#
-# This file is the source of truth for the chart's Artifact Hub listing.
-# To take effect, push it as an OCI artifact to the same OCI repo that
-# hosts the chart (one-time operation, run from a checkout):
-#
-#   oras push ghcr.io/ethan-kane-ops/charts/scale-sentry:artifacthub.io \
-#     --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
-#     artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
-#
-# Re-run only if repositoryID or owners change. Artifact Hub re-scans
-# the repo on its own cadence and picks up new chart versions automatically.
-#
-# Note: owners block (name + email) is required for the "verified
-# publisher" tick. It is intentionally omitted here per the project's
-# no-email contact policy; the listing still works without it.
-
 repositoryID: 98c1291b-9eb2-4e0e-8d43-66514415921b
+owners:
+  - name: Ethan Kane
+    email: ethan.kane.ops@gmail.com
