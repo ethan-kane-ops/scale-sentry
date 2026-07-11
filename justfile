@@ -166,8 +166,16 @@ test-e2e: kind-create kind-load deploy
     kind load docker-image --name {{kind_cluster}} registry.k8s.io/hpa-example
     go test -tags e2e -count=1 -timeout=25m ./test/e2e/...
 
+# Install metrics-server; HPAs cannot act without it, and kind kubelets
+# serve self-signed certs so the insecure-tls patch is required.
+metrics-server:
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+    kubectl -n kube-system patch deploy metrics-server --type=json \
+        -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+    kubectl -n kube-system rollout status deploy/metrics-server --timeout=120s
+
 # Spin up a dev cluster with the chart installed; no tests run, cluster stays up
-dev-up: kind-create kind-load deploy
+dev-up: kind-create kind-load deploy metrics-server
     @echo "✓ cluster up. apply a sample:  kubectl apply -f config/samples/targets/podinfo.yaml -f config/samples/scalevalidation-servicedefault.yaml"
 
 # Tear down the dev cluster
