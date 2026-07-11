@@ -1,0 +1,29 @@
+# scale-sentry architecture hero. Source of truth for the README SVGs:
+#   d2 docs/assets/architecture.d2 docs/assets/architecture-light.svg
+#   d2 --theme=200 docs/assets/architecture.d2 docs/assets/architecture-dark.svg
+direction: right
+
+user: kubectl apply {
+  shape: oval
+}
+cr: ScaleValidation CR
+controller: Controller
+loadgen: Loadgen Job
+observer: Observer Job
+target: |md
+  Target
+
+  Service + Pods + HPA
+|
+
+user -> cr
+cr -> controller: 1 reconcile
+controller -> loadgen: 2 spawn
+controller -> observer: 2 spawn
+loadgen -> target: 3 h1 / h2 / gRPC load
+observer -> target: 4 watch + scrape
+loadgen -> observer: report {
+  style.stroke-dash: 3
+}
+observer -> controller: 5 verdict
+controller -> cr: 5 status + Events
