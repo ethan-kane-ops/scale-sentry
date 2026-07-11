@@ -51,6 +51,13 @@ test:
 test-race:
     go test -race ./...
 
+# Run each fuzz target briefly; CI runs these weekly with a bigger budget
+fuzz fuzztime="30s":
+    go test -run=NONE -fuzz='^FuzzParse$' -fuzztime={{fuzztime}} ./internal/analyzer/cgroup
+    go test -run=NONE -fuzz='^FuzzParseCAdvisor$' -fuzztime={{fuzztime}} ./internal/analyzer/cgroup
+    go test -run=NONE -fuzz='^FuzzParseReportLog$' -fuzztime={{fuzztime}} ./internal/observer
+    go test -run=NONE -fuzz='^FuzzShadowAnnotations$' -fuzztime={{fuzztime}} ./internal/controller
+
 # Run unit + envtest with coverage, writing coverage.out (consumed by CI/codecov).
 # -coverpkg widens attribution so envtest reconciler exercise counts toward the
 # controller package and so cross-package calls (e.g. loadgen → metrics) score
