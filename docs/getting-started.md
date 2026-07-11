@@ -27,7 +27,7 @@ All images are multi-arch (`linux/amd64`, `linux/arm64`).
 
 ## Quickstart: first verdict in five minutes
 
-You need a target Deployment with an HPA. The repo ships [podinfo](https://github.com/stefanprodan/podinfo) (Deployment + Service + HPA) as the canonical demo target:
+You need a target Deployment with an HPA, and the cluster needs metrics-server (HPAs cannot act without it; `just dev-up` installs it on the local kind cluster, and [Troubleshooting](troubleshooting.md) covers clusters that lack it). The repo ships [podinfo](https://github.com/stefanprodan/podinfo) (Deployment + Service + HPA) as the canonical demo target:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/samples/targets/podinfo.yaml
