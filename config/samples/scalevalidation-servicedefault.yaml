@@ -1,5 +1,9 @@
 # Basic ServiceDefault run against the podinfo target. Loadgen hits the
 # Service at "/", the simplest possible validation.
+#
+# baseRps is sized so the run actually forces a scale-up: podinfo burns
+# ~0.13m CPU per RPS, so 1500 RPS lands ~200m against a 100m request and
+# the HPA (target 50%) walks 1 -> ~4 replicas inside the 90s SLA.
 apiVersion: validation.scale-sentry.ek.co/v1alpha1
 kind: ScaleValidation
 metadata:
@@ -15,5 +19,5 @@ spec:
     port: 9898
     networkPath: ClusterIP
   load:
-    baseRps: 100
+    baseRps: 1500
     concurrencyFactor: 10
