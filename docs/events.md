@@ -6,6 +6,42 @@ Scale Sentry emits Kubernetes Events on every meaningful state transition of a `
 kubectl get events --field-selector involvedObject.name=my-validation,involvedObject.kind=ScaleValidation -w
 ```
 
+## Lifecycle at a glance
+
+Where each Event reason fires during a run:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant CR as ScaleValidation
+    participant C as Controller
+    participant L as Loadgen Job
+    participant O as Observer
+    participant T as Target + HPA
+
+    User->>CR: kubectl apply
+    C->>T: wait for ready replicas
+    Note over C,T: TargetReadyTimeout (Warning) if readiness never comes
+    C->>L: create Job
+    Note over C: LoadgenJobCreated (Normal)
+    L->>T: h1 / h2 / gRPC load (warmup, then measured phases)
+    O->>T: watch HPA + EndpointSlices, scrape cAdvisor
+    L-->>O: run report (shared volume)
+    O-->>C: verdict
+    alt SLA met, traffic intact
+        Note over C,CR: VerdictPass (Normal), phase Succeeded
+    else SLA breached or integrity failed
+        Note over C,CR: VerdictFail (Warning), phase Failed
+    end
+    opt Delete mid-run
+        User->>CR: kubectl delete
+        Note over C,L: FinalizerDraining (Normal), child Jobs torn down
+    end
+```
+
+Error paths not shown above fire on their own transitions: `LoadgenJobFailed` (pod exited non-zero), `LoadgenJobVanished` (Job deleted out from under the run), `TLSCABundleMissing` (referenced ConfigMap absent), and `RunErrored` (non-recoverable reconciler error). All four land the run in phase `Error`.
+
 ## Reason taxonomy
 
 The controller writes exactly **nine** reasons. They are stable strings; alerts and dashboards can match on them safely.
