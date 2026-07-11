@@ -208,7 +208,7 @@ install:
 
 # Preview the next release without writing anything
 release-preview bump="auto":
-    @git cliff --bump {{bump}} --bumped-version | xargs -I{} echo "next: v{}"
+    @git cliff --bump {{bump}} --bumped-version | xargs -I{} echo "next: {}"
     @echo "── changelog preview ──"
     @git cliff --bump {{bump}} --unreleased
 
