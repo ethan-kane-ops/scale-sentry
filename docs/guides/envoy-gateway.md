@@ -18,6 +18,7 @@ The repo ships a complete fixture set (Gateway, HTTPRoutes/GRPCRoutes, CPU-bound
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/e2e/00-namespace.yaml
 kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/e2e/targets/whoami.yaml
+kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/e2e/targets/h2c-echo.yaml
 kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/e2e/envoy-gateway/gateway.yaml
 kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/e2e/envoy-gateway/routes.yaml
 ```
@@ -30,11 +31,11 @@ spec:
     mode: ServiceDefault
     port: 80
     networkPath: Gateway
-    host: envoy-scale-sentry-e2e-scale-sentry-eg.envoy-gateway-system.svc.cluster.local
+    host: envoy-scale-sentry-e2e-scale-sentry-eg-a090755d.envoy-gateway-system.svc.cluster.local
 ```
 
 - `networkPath: Gateway` routes loadgen traffic through the edge instead of the target Service.
-- `host` points the loadgen at the Envoy listener Service. Envoy Gateway names it `envoy-<gateway-namespace>-<gateway-name>` in `envoy-gateway-system`; find yours with:
+- `host` points the loadgen at the Envoy listener Service. Envoy Gateway names it `envoy-<gateway-namespace>-<gateway-name>-<hash>` in `envoy-gateway-system` (the hash is derived from the Gateway namespace/name); find yours with:
 
 ```bash
 kubectl -n envoy-gateway-system get svc \

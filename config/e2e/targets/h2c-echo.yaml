@@ -1,0 +1,95 @@
+# HTTP/2 cleartext (h2c) target Deployment + Service + HPA.
+#
+# Caddy serves prior-knowledge h2c natively once `protocols h1 h2c` is
+# set (Go net/http servers, including traefik/whoami, only speak h2 over
+# TLS). The official image is multi-arch and the Caddyfile rides a
+# ConfigMap, so no custom image build is needed.
+#
+# The Service marks appProtocol=kubernetes.io/h2c so Envoy Gateway keeps
+# h2 framing end-to-end instead of downgrading to HTTP/1 upstream.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: h2c-echo-caddyfile
+  namespace: scale-sentry-e2e
+data:
+  Caddyfile: |
+    {
+        auto_https off
+        servers {
+            protocols h1 h2c
+        }
+    }
+    :8080 {
+        respond "h2c echo"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: h2c-echo
+  namespace: scale-sentry-e2e
+  labels: { app: h2c-echo }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: h2c-echo } }
+  template:
+    metadata:
+      labels: { app: h2c-echo }
+    spec:
+      containers:
+        - name: caddy
+          image: caddy:2.11.4-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http2
+          volumeMounts:
+            - name: caddyfile
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          readinessProbe:
+            # Caddy also answers HTTP/1 on the same listener, so a plain
+            # httpGet probe works even though the load runs h2c.
+            httpGet: { path: /, port: 8080 }
+            periodSeconds: 2
+      volumes:
+        - name: caddyfile
+          configMap: { name: h2c-echo-caddyfile }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: h2c-echo
+  namespace: scale-sentry-e2e
+spec:
+  selector: { app: h2c-echo }
+  ports:
+    - name: http2
+      port: 80
+      targetPort: 8080
+      # AppProtocol h2c lets Envoy Gateway pick HTTP/2 upstream framing.
+      appProtocol: kubernetes.io/h2c
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: h2c-echo
+  namespace: scale-sentry-e2e
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: h2c-echo
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

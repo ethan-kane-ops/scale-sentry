@@ -1,4 +1,4 @@
-# HTTP/2 cleartext (h2c) against the whoami-h2 Service ClusterIP. The
+# HTTP/2 cleartext (h2c) against the h2c-echo Service ClusterIP. The
 # loadgen dials http:// and switches into h2c prior-knowledge framing
 # because spec.target.protocol=HTTP2.
 apiVersion: validation.scale-sentry.ek.co/v1alpha1
@@ -10,7 +10,7 @@ spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: whoami-h2
+    name: h2c-echo
   sla: 2m
   target:
     mode: ServiceDefault

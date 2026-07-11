@@ -1,10 +1,11 @@
 # gRPC health-server target Deployment + Service + HPA.
 #
-# salrashid123/grpc_only_backend is a widely-cited public test image that
-# implements grpc.health.v1.Health (overall server health = SERVING) +
-# a few demo unary methods. Swap the image for your own gRPC service
-# if it registers the standard Health probe (one-line helper for
-# grpc-go: healthpb.RegisterHealthServer(srv, health.NewServer())).
+# agnhost is the Kubernetes SIG-Testing e2e image; its grpc-health-checking
+# subcommand serves the standard grpc.health.v1.Health probe (overall
+# server health = SERVING). Hosted on registry.k8s.io (no docker.io rate
+# limits) and multi-arch. Swap the image for your own gRPC service if it
+# registers the standard Health probe (one-line helper for grpc-go:
+# healthpb.RegisterHealthServer(srv, health.NewServer())).
 #
 # The Service marks appProtocol=grpc so Envoy Gateway routes h2 framing
 # end-to-end without falling back to HTTP/1 upstream.
@@ -24,8 +25,9 @@ spec:
     spec:
       containers:
         - name: grpc
-          image: salrashid123/grpc_only_backend:1
+          image: registry.k8s.io/e2e-test-images/agnhost:2.53
           imagePullPolicy: IfNotPresent
+          args: ["grpc-health-checking", "--port=50051"]
           ports:
             - containerPort: 50051
               name: grpc
