@@ -62,6 +62,7 @@ jobs:
             --junitfile junit.xml \
             -- \
             -tags envtest \
+            -race \
             -covermode=atomic \
             -coverpkg=./internal/...,./api/... \
             -coverprofile=coverage.out
