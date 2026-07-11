@@ -11,6 +11,10 @@
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://ethan-kane-ops.github.io/scale-sentry/)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/scale-sentry)](https://artifacthub.io/packages/search?repo=scale-sentry)
 
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="scale-sentry quickstart: apply a ScaleValidation, watch it reach Succeeded, read the verdict Events" width="720">
+</p>
+
 **Scale Sentry** validates Kubernetes auto-scaling behavior under load. It generates dynamic traffic to a target Deployment, tracks HPA scale-up latency against an SLA, and correlates HTTP errors with EndpointSlice updates to surface **cold-start traffic leakage**, errors served the instant a new pod is declared Ready.
 
 It is a [kubebuilder](https://book.kubebuilder.io/) v4 controller built on `controller-runtime`. Workloads are validated declaratively through a `ScaleValidation` Custom Resource or through annotations on existing Deployments.
@@ -19,18 +23,13 @@ It is a [kubebuilder](https://book.kubebuilder.io/) v4 controller built on `cont
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    User([kubectl apply]) --> CR[ScaleValidation CR]
-    CR -->|1 reconcile| Controller
-    Controller -->|2 spawn| Loadgen[Loadgen Job]
-    Controller -->|2 spawn| Observer[Observer Job]
-    Loadgen -->|3 h1 / h2 / gRPC| Target["Target: Service, Pods, HPA"]
-    Observer -->|4 watch + correlate| Target
-    Loadgen -.report.-> Observer
-    Observer -->|5 verdict| Controller
-    Controller -->|5 status + Events| CR
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
+  <img alt="scale-sentry architecture: the controller reconciles a ScaleValidation CR, spawns loadgen and observer Jobs against the target, and writes the verdict back to the CR status" src="docs/assets/architecture-light.svg">
+</picture>
+
+The full run lifecycle, keyed to the Events the controller emits, is on the
+[Events](https://ethan-kane-ops.github.io/scale-sentry/events/) page.
 
 1. Controller reconciles a `ScaleValidation` CR, resolving its `targetRef` and computing dynamic load characteristics.
 2. Two jobs are spawned: a Loadgen that drives traffic and an Observer that watches cluster state and scrapes cgroup metrics.
