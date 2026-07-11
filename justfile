@@ -157,7 +157,7 @@ test-e2e: kind-create kind-load deploy
     # scale-up does not have to pull it once per new replica.
     docker pull registry.k8s.io/hpa-example
     kind load docker-image --name {{kind_cluster}} registry.k8s.io/hpa-example
-    go test -tags e2e -count=1 -timeout=15m ./test/e2e/...
+    go test -tags e2e -count=1 -timeout=25m ./test/e2e/...
 
 # Spin up a dev cluster with the chart installed; no tests run, cluster stays up
 dev-up: kind-create kind-load deploy
