@@ -26,6 +26,10 @@ sequenceDiagram
     C->>L: create Job
     Note over C: LoadgenJobCreated (Normal)
     L->>T: h1 / h2 / gRPC load (warmup, then measured phases)
+    opt spec.disruption enabled
+        C->>T: delete one healthy pod at the trigger point
+        Note over C,T: ChaosInjected (Normal) / ChaosSkipped (Warning)
+    end
     O->>T: watch HPA + EndpointSlices, scrape cAdvisor
     L-->>O: run report (shared volume)
     O-->>C: verdict
@@ -44,7 +48,7 @@ Error paths not shown above fire on their own transitions: `LoadgenJobFailed` (p
 
 ## Reason taxonomy
 
-The controller writes exactly **nine** reasons. They are stable strings; alerts and dashboards can match on them safely.
+The controller writes exactly **eleven** reasons. They are stable strings; alerts and dashboards can match on them safely.
 
 | Reason                  | Type    | When fired                                                                       |
 |-------------------------|---------|----------------------------------------------------------------------------------|
@@ -57,6 +61,8 @@ The controller writes exactly **nine** reasons. They are stable strings; alerts 
 | `VerdictFail`           | Warning | SLA breached or traffic-integrity check failed. Terminal failure.                |
 | `RunErrored`            | Warning | The reconciler hit a non-recoverable error (e.g. API server unreachable).        |
 | `FinalizerDraining`     | Normal  | A user-initiated delete is in-flight; the finalizer is tearing down child Jobs.  |
+| `ChaosInjected`         | Normal  | `spec.disruption` deleted one healthy target pod at the trigger point.           |
+| `ChaosSkipped`          | Warning | Disruption was configured but fewer than `minReplicasForChaos` replicas were healthy. |
 
 ## Why Events, not a CRD message field
 

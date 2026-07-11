@@ -102,6 +102,8 @@ spec:
 
 Enabling `spec.disruption.injectPodDeletion` terminates one healthy replica at peak load to exercise `terminationGracePeriodSeconds`, `preStop` hooks, and EndpointSlice propagation. `minReplicasForChaos` is a safety floor: chaos is skipped below it. `triggerDelay` offsets the kill from the start of peak load.
 
+The decision is single-shot per run and recorded on the CR as a `DisruptionInjected` status condition: `True` (reason `PodDeleted`) names the victim, `False` (reason `Skipped`) carries why the safety gate refused. The kill also emits a `ChaosInjected` or `ChaosSkipped` Event (see [Events](events.md)). Dropped requests correlated with the resulting endpoint removal surface as an `UngracefulDrain` diagnostic in `status.diagnostics`.
+
 ## SLA
 
 `spec.sla` is the HPA scale-up latency budget. The run's verdict band (pass / warn / fail) is computed against it. See [Observability](observability.md) for the emitted metrics.

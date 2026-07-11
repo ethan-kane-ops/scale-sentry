@@ -77,6 +77,8 @@ const (
 	EventReasonVerdictFail        = "VerdictFail"
 	EventReasonRunErrored         = "RunErrored"
 	EventReasonFinalizerDraining  = "FinalizerDraining"
+	EventReasonChaosInjected      = "ChaosInjected"
+	EventReasonChaosSkipped       = "ChaosSkipped"
 )
 
 // ScaleValidationReconciler reconciles a ScaleValidation object.
@@ -120,7 +122,7 @@ func (r *ScaleValidationReconciler) eventf(cr *v1alpha1.ScaleValidation, eventTy
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations/finalizers,verbs=update
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 //+kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get
 //+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
@@ -200,7 +202,8 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	case jobConditionTrue(&job, batchv1.JobComplete):
 		return r.finishRun(ctx, &cr)
 	default:
-		return ctrl.Result{}, nil
+		// Job in flight: the only mid-run duty is chaos injection.
+		return r.maybeInjectDisruption(ctx, &cr)
 	}
 }
 
