@@ -28,7 +28,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/setup
+      # No @latest: resolves through go.mod + go.sum (hack/tools.go).
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck
       - name: Scan ./cmd/${{ matrix.cmd }}
         run: govulncheck -show verbose ./cmd/${{ matrix.cmd }}
