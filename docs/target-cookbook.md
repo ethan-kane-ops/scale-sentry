@@ -84,7 +84,7 @@ spec:
     protocol: HTTP2
 ```
 
-The backend must accept h2c. Most h2-capable servers (`nginx --http2`, traefik/whoami `--h2c`, Envoy upstream with h2 framing) do.
+The backend must accept h2c. Servers that speak it include nginx (`http2 on` on a cleartext listener), Caddy (`servers { protocols h1 h2c }`), and Envoy upstreams with h2 framing. Go `net/http` servers (including traefik/whoami) only speak h2 over TLS; the repo's h2c fixture uses Caddy for exactly that reason (`config/e2e/targets/h2c-echo.yaml`).
 
 ### Gateway (Envoy) {#http2-gateway}
 

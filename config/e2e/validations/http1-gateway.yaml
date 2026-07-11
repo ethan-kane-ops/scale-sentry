@@ -19,10 +19,13 @@ spec:
     port: 80
     networkPath: Gateway
     protocol: HTTP1
-    # Envoy Gateway provisions a ClusterIP Service named
-    # envoy-<gw-ns>-<gw-name>-<hash> in the envoy-gateway-system
-    # namespace by default. Adjust if your install names differ.
-    host: envoy-scale-sentry-e2e-scale-sentry-eg.envoy-gateway-system.svc.cluster.local
+    # Envoy Gateway provisions the proxy Service as
+    # envoy-<gw-ns>-<gw-name>-<hash> in envoy-gateway-system; the hash
+    # is derived from the Gateway namespace/name, so this value is
+    # stable for these fixtures. Discover yours with:
+    #   kubectl -n envoy-gateway-system get svc \
+    #     -l gateway.envoyproxy.io/owning-gateway-name=scale-sentry-eg
+    host: envoy-scale-sentry-e2e-scale-sentry-eg-a090755d.envoy-gateway-system.svc.cluster.local
   load:
     baseRps: 200
     concurrencyFactor: 50

@@ -10,14 +10,14 @@ spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: whoami-h2
+    name: h2c-echo
   sla: 2m
   target:
     mode: ServiceDefault
     port: 8080
     networkPath: Gateway
     protocol: HTTP2
-    host: envoy-scale-sentry-e2e-scale-sentry-eg.envoy-gateway-system.svc.cluster.local
+    host: envoy-scale-sentry-e2e-scale-sentry-eg-a090755d.envoy-gateway-system.svc.cluster.local
   load:
     baseRps: 200
     concurrencyFactor: 50
