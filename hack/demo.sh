@@ -31,6 +31,11 @@ kubectl wait scalevalidation/podinfo-default \
 sleep 2
 kill "$WATCH_PID" 2>/dev/null && WATCH_PID=""
 
+printf '\n%skubectl get hpa,pods -l app=podinfo\n' "$PROMPT"
+kubectl get hpa podinfo
+kubectl get pods -l app=podinfo
+sleep 2
+
 printf '\n%skubectl describe scalevalidation podinfo-default\n' "$PROMPT"
 kubectl describe scalevalidation podinfo-default | sed -n '/Events:/,$p'
 sleep 3
