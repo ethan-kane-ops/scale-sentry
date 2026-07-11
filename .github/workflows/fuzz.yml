@@ -1,0 +1,35 @@
+name: fuzz
+
+# Native Go fuzzing on the parsers that eat untrusted or semi-trusted text
+# (cgroup cpu.stat, cAdvisor scrape, observer report log, shadow annotations).
+# Weekly rather than per-PR: the corpus grows over time and a 20-minute budget
+# has no place on the PR critical path. Crashers land as testdata seeds.
+on:
+  schedule:
+    - cron: "43 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz parsers
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/setup
+      - name: Fuzz (5 minutes per target)
+        run: just fuzz 300s
+      - name: Upload crashers
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4.4.3
+        with:
+          name: fuzz-crashers
+          path: '**/testdata/fuzz/**'
+          if-no-files-found: ignore

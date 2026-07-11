@@ -24,10 +24,20 @@ import (
 //	container_cpu_usage_seconds_total         -> Stat.UsageUSec
 //
 // user_/system_ usage are not exposed by cAdvisor and stay at zero.
-func ParseCAdvisor(r io.Reader, podName, namespace, container string) (Stat, error) {
+func ParseCAdvisor(r io.Reader, podName, namespace, container string) (s Stat, err error) {
 	if podName == "" || container == "" {
 		return Stat{}, fmt.Errorf("pod and container required for cadvisor filter")
 	}
+	// The text parser panics on some malformed inputs, e.g. a label brace
+	// line before any metric name ("#HELP A00 \n{}"), reproduced by fuzzing
+	// on prometheus/common v0.69.0 and v0.70.0. The scrape body arrives
+	// over the network, so a parser panic must surface as a parse error,
+	// not kill the observer.
+	defer func() {
+		if p := recover(); p != nil {
+			s, err = Stat{}, fmt.Errorf("parse cadvisor exposition: parser panic: %v", p)
+		}
+	}()
 	// prometheus/common v0.67 panics inside the text parser the first
 	// time it inspects a metric name unless the validation scheme is
 	// set; the constructor takes the scheme explicitly. UTF8Validation
@@ -39,7 +49,6 @@ func ParseCAdvisor(r io.Reader, podName, namespace, container string) (Stat, err
 		return Stat{}, fmt.Errorf("parse cadvisor exposition: %w", err)
 	}
 
-	var s Stat
 	pick := func(name string, into func(uint64)) {
 		fam, ok := families[name]
 		if !ok {
