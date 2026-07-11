@@ -20,12 +20,13 @@ default:
 build:
     go build -o bin/ ./cmd/...
 
-# Install controller-gen + setup-envtest at pinned versions into $GOBIN
+# Install controller-gen + setup-envtest at pinned versions into $GOBIN.
+# setup-envtest is module-aware (version from go.mod via hack/tools.go).
 tools:
     #!/usr/bin/env bash
     set -euo pipefail
     go install sigs.k8s.io/controller-tools/cmd/controller-gen@{{controller_gen_version}}
-    go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+    go install sigs.k8s.io/controller-runtime/tools/setup-envtest
     echo "✅ tools installed"
 
 # Generate CRD + RBAC manifests from kubebuilder markers.

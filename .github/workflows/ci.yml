@@ -40,10 +40,12 @@ jobs:
         run: |
           just tidy
           just lint
+      # No @latest: module-aware installs resolve through go.mod + go.sum
+      # (hack/tools.go tracks the tools), so versions are hash-pinned.
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+        run: go install gotest.tools/gotestsum
       - name: Install setup-envtest (envtest assets cache)
-        run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+        run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest
       - name: Cache envtest assets
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
