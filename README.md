@@ -21,33 +21,15 @@ It is a [kubebuilder](https://book.kubebuilder.io/) v4 controller built on `cont
 
 ```mermaid
 flowchart LR
-    User([Platform Engineer]) -->|kubectl apply| CR[ScaleValidation CR]
-
-    subgraph Operator [scale-sentry namespace]
-        Controller[Controller]
-    end
-
-    CR -.watched.-> Controller
-    Controller -->|1 spawn| Loadgen[Loadgen Job]
+    User([kubectl apply]) --> CR[ScaleValidation CR]
+    CR -->|1 reconcile| Controller
+    Controller -->|2 spawn| Loadgen[Loadgen Job]
     Controller -->|2 spawn| Observer[Observer Job]
-
-    subgraph Target [target namespace]
-        Service[Service]
-        Pods[Target Pods]
-        HPA[HorizontalPodAutoscaler]
-    end
-
-    Loadgen -->|3 h1 / h2 / gRPC| Service --> Pods
-    Pods -.resource usage.-> HPA
-    HPA -.scales.-> Pods
-
-    Observer -.watches HPA / Endpoints / Pods.-> Target
-    Observer -.scrapes cAdvisor.-> Pods
-    Loadgen -.report.-> Volume[(shared volume)]
-    Volume -.read.-> Observer
-
-    Observer -->|4 verdict report| Controller
-    Controller -->|5 status update| CR
+    Loadgen -->|3 h1 / h2 / gRPC| Target["Target: Service, Pods, HPA"]
+    Observer -->|4 watch + correlate| Target
+    Loadgen -.report.-> Observer
+    Observer -->|5 verdict| Controller
+    Controller -->|5 status + Events| CR
 ```
 
 1. Controller reconciles a `ScaleValidation` CR, resolving its `targetRef` and computing dynamic load characteristics.
