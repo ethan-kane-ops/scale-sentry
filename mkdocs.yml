@@ -47,6 +47,11 @@ nav:
   - Protocols: protocols.md
   - Events: events.md
   - Target Cookbook: target-cookbook.md
+  - Guides:
+      - Validate a gRPC Service: guides/validate-grpc.md
+      - Test Through Envoy Gateway: guides/envoy-gateway.md
+      - Gate a Pipeline on a Verdict: guides/ci-gate.md
+  - Troubleshooting: troubleshooting.md
   - High Availability: high-availability.md
   - Observability: observability.md
   - Security: security.md

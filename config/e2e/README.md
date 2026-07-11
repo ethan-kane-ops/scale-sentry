@@ -27,7 +27,7 @@ All six target workloads are CPU-bound with HPA `min=1, max=10, target=70% CPU`,
        --namespace envoy-gateway-system --create-namespace
    ```
 
-4. The scale-sentry operator installed in the cluster (the Helm chart or `config/install.yaml`).
+4. The scale-sentry operator installed in the cluster via the Helm chart (see the [install docs](https://ethan-kane-ops.github.io/scale-sentry/getting-started/)).
 
 ## Install the fixtures
 
