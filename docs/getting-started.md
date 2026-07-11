@@ -7,9 +7,10 @@ Install via the OCI Helm chart from GHCR:
 ```bash
 helm install scale-sentry \
   oci://ghcr.io/ethan-kane-ops/charts/scale-sentry \
-  --version 0.1.0 \
   --namespace scale-sentry --create-namespace
 ```
+
+Without `--version` this resolves the latest released chart; add `--version X.Y.Z` (matching a [release](https://github.com/ethan-kane-ops/scale-sentry/releases)) to pin for reproducible installs.
 
 !!! tip "Verify before you install"
     Every released image and the chart are cosign-signed. See [Security](security.md) for the verification command.
@@ -24,35 +25,58 @@ helm install scale-sentry \
 
 All images are multi-arch (`linux/amd64`, `linux/arm64`).
 
-## Run a validation
+## Quickstart: first verdict in five minutes
 
-Apply a `ScaleValidation` CR against a target Deployment:
-
-```yaml
-apiVersion: validation.scale-sentry.ek.co/v1alpha1
-kind: ScaleValidation
-metadata:
-  name: billing-service-validation
-  namespace: production
-spec:
-  targetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: billing-service
-  sla: 90s
-  target:
-    mode: AutoDiscoverProbe
-    port: 8080
-  load:
-    baseRps: 150
-    concurrencyFactor: 50
-```
-
-Watch the verdict land on the resource status:
+You need a target Deployment with an HPA. The repo ships [podinfo](https://github.com/stefanprodan/podinfo) (Deployment + Service + HPA) as the canonical demo target:
 
 ```bash
-kubectl get scalevalidation billing-service-validation -n production -o yaml
+kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/samples/targets/podinfo.yaml
+kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/samples/scalevalidation-servicedefault.yaml
 ```
+
+Watch the run move through its phases:
+
+```bash
+kubectl get scalevalidation podinfo-default -w
+```
+
+```
+NAME              PHASE       SLA    TRAFFIC   AGE
+podinfo-default   Pending                      2s
+podinfo-default   Running                      8s
+podinfo-default   Succeeded   Pass   Pass      3m41s
+```
+
+The controller narrates the lifecycle through Events, so a failing run explains itself:
+
+```bash
+kubectl describe scalevalidation podinfo-default
+```
+
+Read the full verdict off the status subresource:
+
+```bash
+kubectl get scalevalidation podinfo-default -o yaml
+```
+
+Key status fields: `phase` (Pending / Running / Succeeded / Failed / Error / Terminating), `slaStatus` and `trafficIntegrity` (Pass / Fail / Unknown), `scaleUpDuration` (measured HPA reaction), `totalRequests` / `failedRequests` / `failureRate`, and `diagnostics` (the analyzer findings, each with an alert name and severity). The [Events](events.md) page maps every lifecycle transition; [Observability](observability.md) covers the matching Prometheus metrics.
+
+## Sample library
+
+Every spec shape ships as a runnable manifest in [`config/samples/`](https://github.com/ethan-kane-ops/scale-sentry/tree/main/config/samples):
+
+| Sample | Demonstrates |
+|---|---|
+| `scalevalidation-servicedefault.yaml` | Minimal run: Service endpoint, constant load |
+| `scalevalidation-autodiscover.yaml` | `AutoDiscoverProbe` readiness-path targeting |
+| `scalevalidation-custompath.yaml` | `CustomPath` explicit endpoint |
+| `scalevalidation-rampload.yaml` | `Ramp` open-loop profile with warmup |
+| `scalevalidation-poissonload.yaml` | `Poisson` arrivals for SLA-accurate p99 |
+| `scalevalidation-http2.yaml` | HTTP/2 (h2c prior-knowledge) target |
+| `scalevalidation-grpc.yaml` | gRPC Health/Check load |
+| `scalevalidation-tls.yaml` | Private CA bundle via ConfigMap |
+| `scalevalidation-with-disruption.yaml` | Chaos pod-kill at peak load |
+| `targets/podinfo.yaml` | Demo target: Deployment + Service + HPA |
 
 ## Annotation bridge
 
