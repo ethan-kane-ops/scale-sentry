@@ -8,6 +8,11 @@ name: E2E
 # trivial doc/refactor PRs disproportionately.
 on:
   workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: "Run the full scenario matrix (Envoy Gateway + protocol fixtures + disruption)"
+        type: boolean
+        default: false
   schedule:
     - cron: "23 5 * * *"
   pull_request:
@@ -60,6 +65,11 @@ jobs:
     name: kind smoke E2E
     needs: build-images
     runs-on: ubuntu-latest
+    # The full matrix (protocol fixtures, Envoy Gateway path, disruption
+    # run) rides the nightly cron and the dispatch opt-in; PR-labeled runs
+    # stay smoke-only to hold the ENG-62 time budget.
+    env:
+      E2E_FULL_MATRIX: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_matrix)) && '1' || '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/setup
@@ -81,6 +91,12 @@ jobs:
           docker image ls scale-sentry-*
       - name: Pre-warm hpa-example image
         run: docker pull registry.k8s.io/hpa-example
+      - name: Pre-warm matrix fixture images
+        if: env.E2E_FULL_MATRIX == '1'
+        run: |
+          docker pull traefik/whoami:v1.10.3
+          docker pull caddy:2.11.4-alpine
+          docker pull registry.k8s.io/e2e-test-images/agnhost:2.53
       - name: Create kind cluster
         run: kind create cluster --name scale-sentry-e2e
       - name: Load images into kind
@@ -90,6 +106,16 @@ jobs:
             scale-sentry-loadgen:dev \
             scale-sentry-observer:dev \
             registry.k8s.io/hpa-example
+      - name: Load matrix fixture images into kind
+        if: env.E2E_FULL_MATRIX == '1'
+        run: |
+          kind load docker-image --name scale-sentry-e2e \
+            traefik/whoami:v1.10.3 \
+            caddy:2.11.4-alpine \
+            registry.k8s.io/e2e-test-images/agnhost:2.53
+      - name: Install Gateway API CRDs + Envoy Gateway
+        if: env.E2E_FULL_MATRIX == '1'
+        run: just envoy-gateway
       - name: Helm install chart
         run: |
           helm upgrade --install scale-sentry charts/scale-sentry \
@@ -100,4 +126,26 @@ jobs:
           kubectl wait --for=condition=Available --timeout=120s \
             -n default deployment/scale-sentry-controller
       - name: Run E2E suite
-        run: go test -tags e2e -count=1 -timeout=25m ./test/e2e/...
+        run: go test -tags e2e -count=1 -timeout=45m ./test/e2e/...
+
+  # Nightly envtest sweep against the two Kubernetes minors behind the
+  # go.mod k8s.io/* pin, enforcing the README's ">= 1.34" support claim.
+  # The regular CI job already covers the current minor.
+  envtest-matrix:
+    name: envtest k8s ${{ matrix.k8s }}
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_matrix)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s: ["1.35", "1.34"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/setup
+      - name: Install setup-envtest
+        run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+      - name: Run envtest suite against k8s ${{ matrix.k8s }}
+        run: |
+          KUBEBUILDER_ASSETS="$(setup-envtest use ${{ matrix.k8s }} -p path)"
+          export KUBEBUILDER_ASSETS
+          go test -tags envtest -count=1 ./internal/controller/...
