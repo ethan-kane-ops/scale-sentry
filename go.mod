@@ -13,7 +13,7 @@ require (
 	github.com/valyala/fasthttp v1.72.0
 	golang.org/x/net v0.57.0
 	golang.org/x/vuln v1.6.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.82.1
 	gotest.tools/gotestsum v1.13.0
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
