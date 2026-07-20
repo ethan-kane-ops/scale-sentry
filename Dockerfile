@@ -12,7 +12,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/entrypoint ./cmd/${CMD}
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:b7bb25d9f7c31d2bdd1982feb4dafcaf137703c7075dbe2febb41c24212b946f
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:aef9602f8710ec12bde19d593fed1f76c708531bb7aba205110f1029786ead7b
 ARG CMD=scale-sentry
 LABEL org.opencontainers.image.source="https://github.com/ethan-kane-ops/scale-sentry"
 LABEL org.opencontainers.image.description="scale-sentry: ${CMD}"
