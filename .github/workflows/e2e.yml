@@ -44,7 +44,7 @@ jobs:
           - cmd: observer
             image: scale-sentry-observer
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -71,7 +71,7 @@ jobs:
     env:
       E2E_FULL_MATRIX: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_matrix)) && '1' || '' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - name: Cache kind node image
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -140,7 +140,7 @@ jobs:
       matrix:
         k8s: ["1.35", "1.34"]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - name: Install setup-envtest
         run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
