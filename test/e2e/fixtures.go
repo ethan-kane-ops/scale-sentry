@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -41,6 +42,21 @@ func skipUnlessFullMatrix(t *testing.T) {
 	if os.Getenv("E2E_FULL_MATRIX") == "" {
 		t.Skip("set E2E_FULL_MATRIX=1 to run the full scenario matrix")
 	}
+}
+
+// scaledSLA widens a fixture's real-time SLA window by E2E_SLA_MULTIPLIER,
+// absorbing scheduler/scrape jitter on shared CI compute. Unset (the local
+// default) leaves the fixture's documented SLA untouched.
+func scaledSLA(base time.Duration) time.Duration {
+	v := os.Getenv("E2E_SLA_MULTIPLIER")
+	if v == "" {
+		return base
+	}
+	mult, err := strconv.ParseFloat(v, 64)
+	if err != nil || mult <= 0 {
+		return base
+	}
+	return time.Duration(float64(base) * mult)
 }
 
 // repoPath resolves a repo-relative path from the test binary's working
@@ -83,6 +99,7 @@ func loadValidationFixture(t *testing.T, name string) *v1alpha1.ScaleValidation 
 	if err := yaml.UnmarshalStrict(raw, &cr); err != nil {
 		t.Fatalf("decode validation fixture %s: %v", name, err)
 	}
+	cr.Spec.SLA.Duration = scaledSLA(cr.Spec.SLA.Duration)
 	return &cr
 }
 
