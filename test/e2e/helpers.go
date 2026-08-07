@@ -68,6 +68,28 @@ func mustCreate(t *testing.T, c client.Client, ctx context.Context, obj client.O
 	}
 }
 
+// waitFor polls fn every pollInterval until it reports done or timeout.
+// Lives in a non-test file (unlike its callers) because fixtures.go, which
+// is not a _test.go file, needs it too: go build only links _test.go files
+// for `go test`, not for a plain `go build`.
+func waitFor(ctx context.Context, timeout time.Duration, fn func() (bool, error)) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		done, err := fn()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		time.Sleep(pollInterval)
+	}
+	return context.DeadlineExceeded
+}
+
 func waitForDeploymentReady(ctx context.Context, c client.Client, ns, name string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

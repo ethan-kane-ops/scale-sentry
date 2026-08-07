@@ -70,6 +70,13 @@ jobs:
     # stay smoke-only to hold the ENG-62 time budget.
     env:
       E2E_FULL_MATRIX: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_matrix)) && '1' || '' }}
+      # Matrix fixtures assert HPA convergence inside a tight, real-time SLA
+      # window (2m). ubuntu-latest is a 2-core shared runner already busy
+      # with kind + metrics-server + Envoy Gateway, so scrape/sync-loop
+      # jitter can burn enough of that window to read as a false SLA miss.
+      # Widen the fixtures' own SLA by 50% here only; local runs against
+      # dedicated capacity keep the documented values (multiplier unset -> 1).
+      E2E_SLA_MULTIPLIER: "1.5"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -93,9 +100,14 @@ jobs:
         run: docker pull registry.k8s.io/hpa-example
       - name: Pre-warm matrix fixture images
         if: env.E2E_FULL_MATRIX == '1'
+        # DockerHub pulls (traefik/whoami, caddy) are pinned by digest, not
+        # just tag: unauthenticated docker.io is rate-limited per-IP, and
+        # GitHub-hosted runners share a small egress IP pool, so an
+        # unpinned tag is both a drift risk and a flakiness risk. Everything
+        # else here is already on registry.k8s.io, which isn't rate-limited.
         run: |
-          docker pull traefik/whoami:v1.10.3
-          docker pull caddy:2.11.4-alpine
+          docker pull traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+          docker pull caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
           docker pull registry.k8s.io/e2e-test-images/agnhost:2.53
       - name: Create kind cluster
         run: kind create cluster --name scale-sentry-e2e
@@ -125,8 +137,29 @@ jobs:
             --set observerImage=scale-sentry-observer:dev
           kubectl wait --for=condition=Available --timeout=120s \
             -n default deployment/scale-sentry-controller
+      # No @latest: module-aware install resolves through go.mod + go.sum
+      # (hack/tools.go tracks the tool), same pattern as ci.yml.
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum
       - name: Run E2E suite
-        run: go test -tags e2e -count=1 -timeout=45m ./test/e2e/...
+        run: |
+          gotestsum \
+            --format testname \
+            --rerun-fails=1 \
+            --packages=./test/e2e/... \
+            -- \
+            -tags e2e \
+            -count=1 \
+            -timeout=45m
+      - name: Dump diagnostics on failure
+        if: failure()
+        run: hack/e2e-diagnostics.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.4.3
+        if: failure()
+        with:
+          name: e2e-diagnostics
+          path: /tmp/e2e-diagnostics
+          retention-days: 7
 
   # Nightly envtest sweep against the two Kubernetes minors behind the
   # go.mod k8s.io/* pin, enforcing the README's ">= 1.34" support claim.

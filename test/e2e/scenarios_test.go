@@ -27,25 +27,6 @@ const (
 	shadowAfter      = 2 * time.Minute
 )
 
-// waitFor polls fn every pollInterval until it reports done or timeout.
-func waitFor(ctx context.Context, timeout time.Duration, fn func() (bool, error)) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		done, err := fn()
-		if err != nil {
-			return err
-		}
-		if done {
-			return nil
-		}
-		time.Sleep(pollInterval)
-	}
-	return context.DeadlineExceeded
-}
-
 // TestE2E_FinalizerCleansUpJobs asserts that deleting a ScaleValidation
 // mid-run tears down the loadgen Job (observer rides it as a sidecar)
 // instead of leaving it burning traffic until its own completion.

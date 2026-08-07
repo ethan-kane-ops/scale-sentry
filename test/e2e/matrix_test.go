@@ -145,9 +145,11 @@ func TestE2E_DisruptionDrainDiagnostics(t *testing.T) {
 			TargetRef: v1alpha1.CrossVersionObjectReference{
 				APIVersion: "apps/v1", Kind: "Deployment", Name: "target",
 			},
-			// 90s window: the kill lands at 30s, leaving a full minute of
-			// measured traffic to correlate against the endpoint removal.
-			SLA:    metav1.Duration{Duration: 90 * time.Second},
+			// 90s window (scaled by E2E_SLA_MULTIPLIER on CI, see
+			// scaledSLA): the kill lands at 30s, leaving at least a full
+			// minute of measured traffic to correlate against the
+			// endpoint removal.
+			SLA:    metav1.Duration{Duration: scaledSLA(90 * time.Second)},
 			Target: v1alpha1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
 			// hpa-example costs ~50ms CPU per request; 20 RPS across two
 			// replicas keeps the node comfortable while giving the drain
