@@ -105,9 +105,16 @@ jobs:
         # GitHub-hosted runners share a small egress IP pool, so an
         # unpinned tag is both a drift risk and a flakiness risk. Everything
         # else here is already on registry.k8s.io, which isn't rate-limited.
+        #
+        # `docker pull name:tag@digest` stores the result keyed by digest
+        # only — it does not also register the bare `name:tag` locally. The
+        # explicit retag below is required so `kind load docker-image
+        # name:tag` (next step) can resolve it.
         run: |
           docker pull traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+          docker tag traefik/whoami@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c traefik/whoami:v1.10.3
           docker pull caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+          docker tag caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 caddy:2.11.4-alpine
           docker pull registry.k8s.io/e2e-test-images/agnhost:2.53
       - name: Create kind cluster
         run: kind create cluster --name scale-sentry-e2e
