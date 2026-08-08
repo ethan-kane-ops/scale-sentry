@@ -3,7 +3,9 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	"github.com/ethan-kane-ops/scale-sentry/internal/metrics"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
 )
 
@@ -60,6 +63,31 @@ func TestApplyReport(t *testing.T) {
 	}
 	if cr.Status.TotalRequests != 1000 || cr.Status.FailedRequests != 40 || cr.Status.FailureRate != 0.04 {
 		t.Errorf("metrics not copied: %+v", cr.Status)
+	}
+}
+
+// TestRecordRunMetrics_HPAReactObserved exercises the ScaleUpDuration != nil
+// branch of recordRunMetrics: neither integration test in this package sets
+// ScaleUpDuration on its observer.Report, so that branch (and the
+// HPAReactSeconds observation inside it) was otherwise never hit. Uses a
+// namespace/name unique to this test so the label-value child metric it
+// creates can't collide with another test's observations on the same
+// package-level collector.
+func TestRecordRunMetrics_HPAReactObserved(t *testing.T) {
+	cr := &v1alpha1.ScaleValidation{
+		ObjectMeta: metav1.ObjectMeta{Name: "record-metrics-hpa-react", Namespace: "record-metrics-test"},
+	}
+	before := testutil.CollectAndCount(metrics.HPAReactSeconds)
+
+	dur := metav1.Duration{Duration: 42 * time.Second}
+	recordRunMetrics(cr, observer.Report{
+		SLAStatus:        observer.VerdictPass,
+		TrafficIntegrity: observer.VerdictPass,
+		ScaleUpDuration:  &dur,
+	})
+
+	if after := testutil.CollectAndCount(metrics.HPAReactSeconds); after <= before {
+		t.Errorf("HPAReactSeconds child count = %d, want > %d (ScaleUpDuration branch not observed)", after, before)
 	}
 }
 
