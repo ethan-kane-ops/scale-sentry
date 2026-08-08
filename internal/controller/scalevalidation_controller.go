@@ -253,6 +253,7 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 	if report.SLAStatus == observer.VerdictFail || report.TrafficIntegrity == observer.VerdictFail {
 		cr.Status.Phase = PhaseFailed
 	}
+	appendRunHistory(cr)
 	if err := r.Status().Update(ctx, cr); err != nil {
 		return ctrl.Result{}, fmt.Errorf("write run results: %w", err)
 	}
@@ -361,6 +362,25 @@ func applyReport(cr *v1alpha1.ScaleValidation, report observer.Report) {
 	cr.Status.TotalRequests = report.TotalRequests
 	cr.Status.FailedRequests = report.FailedRequests
 	cr.Status.FailureRate = report.FailureRate
+}
+
+// appendRunHistory records the just-finalized run (cr.Status.Phase and the
+// fields applyReport just set) at the front of History, newest first, and
+// trims to RunHistoryLimit. Must run after applyReport and the terminal
+// Phase assignment, before the status write, so both land in the same
+// Status().Update call.
+func appendRunHistory(cr *v1alpha1.ScaleValidation) {
+	entry := v1alpha1.RunSummary{
+		FinishedAt:       metav1.Now(),
+		Phase:            cr.Status.Phase,
+		SLAStatus:        cr.Status.SLAStatus,
+		TrafficIntegrity: cr.Status.TrafficIntegrity,
+		FailureRate:      cr.Status.FailureRate,
+	}
+	cr.Status.History = append([]v1alpha1.RunSummary{entry}, cr.Status.History...)
+	if len(cr.Status.History) > v1alpha1.RunHistoryLimit {
+		cr.Status.History = cr.Status.History[:v1alpha1.RunHistoryLimit]
+	}
 }
 
 // targetReady reports whether the CR's target Deployment has at least one

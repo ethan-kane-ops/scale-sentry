@@ -240,6 +240,34 @@ type DiagnosticAlert struct {
 	Recommendation string `json:"recommendation,omitempty"`
 }
 
+// RunHistoryLimit is the maximum number of entries kept in
+// ScaleValidationStatus.History. Older entries are dropped oldest-first as
+// new runs complete. Fixed rather than spec-configurable so a CR can't grow
+// status without bound from user input.
+const RunHistoryLimit = 10
+
+// RunSummary is a compact record of one terminal run, kept in
+// ScaleValidationStatus.History so trend ("did this get worse over the
+// last N releases") is visible from `kubectl get -o json` alone, without
+// requiring a Prometheus scrape of scale_sentry_runs_total. Deliberately
+// excludes Diagnostics: that field can grow arbitrarily large per run,
+// which is fine for a single current-status snapshot but would make a
+// History slice's size unbounded.
+type RunSummary struct {
+	// FinishedAt is when this run reached a terminal phase.
+	FinishedAt metav1.Time `json:"finishedAt"`
+	// Phase is the terminal phase this run reached (Succeeded or Failed).
+	Phase string `json:"phase"`
+	// SLAStatus mirrors the top-level status.slaStatus at run completion.
+	// +kubebuilder:validation:Enum=Pass;Fail;Unknown
+	SLAStatus string `json:"slaStatus,omitempty"`
+	// TrafficIntegrity mirrors the top-level status.trafficIntegrity at run completion.
+	// +kubebuilder:validation:Enum=Pass;Fail;Unknown
+	TrafficIntegrity string `json:"trafficIntegrity,omitempty"`
+	// FailureRate mirrors the top-level status.failureRate at run completion.
+	FailureRate float64 `json:"failureRate,omitempty"`
+}
+
 // ScaleValidationStatus defines the observed state of a ScaleValidation run.
 type ScaleValidationStatus struct {
 	// Phase represents the current lifecycle state.
@@ -274,6 +302,13 @@ type ScaleValidationStatus struct {
 	// LastRunTime is the timestamp of the most recent validation execution.
 	// +optional
 	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`
+
+	// History holds the most recent terminal runs, newest first, bounded to
+	// RunHistoryLimit entries. Lets a single `kubectl get -o json` answer
+	// "did this get worse over the last N releases" without a metrics stack.
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	History []RunSummary `json:"history,omitempty"`
 
 	// Conditions follow the standard Kubernetes conditions pattern.
 	// +optional

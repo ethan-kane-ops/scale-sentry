@@ -334,6 +334,10 @@ func TestIntegration_FinishRunSucceeded(t *testing.T) {
 	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "CPUThrottling" {
 		t.Errorf("diagnostics = %+v, want one CPUThrottling alert", got.Status.Diagnostics)
 	}
+	if len(got.Status.History) != 1 || got.Status.History[0].Phase != PhaseSucceeded ||
+		got.Status.History[0].SLAStatus != "Pass" {
+		t.Errorf("history = %+v, want one Succeeded/Pass entry", got.Status.History)
+	}
 }
 
 func TestIntegration_FinishRunFailedVerdict(t *testing.T) {
