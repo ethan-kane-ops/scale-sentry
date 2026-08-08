@@ -21,49 +21,57 @@ const (
 )
 
 var (
-	// RunsTotal counts terminal ScaleValidation runs by verdict. A run is
-	// counted exactly once when it transitions to Succeeded or Failed.
+	// RunsTotal counts terminal ScaleValidation runs by verdict, namespace,
+	// and name. A run is counted exactly once when it transitions to
+	// Succeeded or Failed. namespace/name are bounded by how many
+	// ScaleValidation CRs exist in the cluster, not free text, so this
+	// stays cardinality-safe: without them, a fleet with more than one
+	// target collapses into a single pass/fail blob with no way to tell
+	// which target is failing from the metric alone.
 	RunsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "scale_sentry_runs_total",
-			Help: "Number of ScaleValidation runs that reached a terminal phase, by verdict.",
+			Help: "Number of ScaleValidation runs that reached a terminal phase, by verdict, namespace, and name.",
 		},
-		[]string{"verdict"},
+		[]string{"namespace", "name", "verdict"},
 	)
 
 	// RunDurationSeconds is the wall-clock duration of a completed run,
 	// observed at run finalization. Buckets span the typical SLA range
 	// (5s through 10min) so a default Grafana panel renders without
 	// custom histogram quantile tweaks.
-	RunDurationSeconds = prometheus.NewHistogram(
+	RunDurationSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "scale_sentry_run_duration_seconds",
-			Help:    "Wall-clock duration of a ScaleValidation run.",
+			Help:    "Wall-clock duration of a ScaleValidation run, by namespace and name.",
 			Buckets: []float64{5, 15, 30, 60, 120, 300, 600},
 		},
+		[]string{"namespace", "name"},
 	)
 
 	// HPAReactSeconds is the time between load start and the first HPA
 	// scale-up action, copied from the observer's measurement. Tighter
 	// bucket set than RunDuration because operators care about sub-minute
 	// detail here.
-	HPAReactSeconds = prometheus.NewHistogram(
+	HPAReactSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "scale_sentry_hpa_react_seconds",
-			Help:    "Time from load start to first HPA scale-up action.",
+			Help:    "Time from load start to first HPA scale-up action, by namespace and name.",
 			Buckets: []float64{1, 5, 10, 20, 30, 60, 120, 300},
 		},
+		[]string{"namespace", "name"},
 	)
 
 	// DiagnosticAlertsTotal counts diagnostic findings emitted by the
-	// analyzer pipeline, labelled by alert type and severity so operators
-	// can chart "CFS throttling rising on Warning" or similar.
+	// analyzer pipeline, labelled by alert type, severity, namespace, and
+	// name so operators can chart "CFS throttling rising on Warning" for
+	// the whole fleet or drill into a single target.
 	DiagnosticAlertsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "scale_sentry_diagnostic_alerts_total",
-			Help: "Diagnostic alerts emitted by the analyzer pipeline, by type and severity.",
+			Help: "Diagnostic alerts emitted by the analyzer pipeline, by type, severity, namespace, and name.",
 		},
-		[]string{"alert", "severity"},
+		[]string{"namespace", "name", "alert", "severity"},
 	)
 )
 
