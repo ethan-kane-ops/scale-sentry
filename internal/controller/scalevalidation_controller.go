@@ -197,7 +197,7 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		log.Info("loadgen job failed", "job", job.Name)
 		r.eventf(&cr, corev1.EventTypeWarning, EventReasonLoadgenJobFailed,
 			"loadgen Job %s reached condition Failed=True", job.Name)
-		metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
+		metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
 		return r.setPhase(ctx, &cr, PhaseError)
 	case jobConditionTrue(&job, batchv1.JobComplete):
 		return r.finishRun(ctx, &cr)
@@ -301,15 +301,18 @@ func topDiagnostic(diags []v1alpha1.DiagnosticAlert) string {
 // has been written back to status. Safe to call with a nil ScaleUpDuration
 // (the HPA react histogram is then skipped, not observed as zero).
 func recordRunMetrics(cr *v1alpha1.ScaleValidation, report observer.Report) {
-	metrics.RunsTotal.WithLabelValues(metrics.VerdictFromStatus(report.SLAStatus, report.TrafficIntegrity)).Inc()
+	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name,
+		metrics.VerdictFromStatus(report.SLAStatus, report.TrafficIntegrity)).Inc()
 	if cr.Status.LastRunTime != nil {
-		metrics.RunDurationSeconds.Observe(time.Since(cr.Status.LastRunTime.Time).Seconds())
+		metrics.RunDurationSeconds.WithLabelValues(cr.Namespace, cr.Name).
+			Observe(time.Since(cr.Status.LastRunTime.Time).Seconds())
 	}
 	if report.ScaleUpDuration != nil {
-		metrics.HPAReactSeconds.Observe(report.ScaleUpDuration.Seconds())
+		metrics.HPAReactSeconds.WithLabelValues(cr.Namespace, cr.Name).
+			Observe(report.ScaleUpDuration.Seconds())
 	}
 	for _, d := range report.Diagnostics {
-		metrics.DiagnosticAlertsTotal.WithLabelValues(d.Type, d.Severity).Inc()
+		metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, d.Type, d.Severity).Inc()
 	}
 }
 
@@ -394,8 +397,8 @@ func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *
 	r.eventf(cr, corev1.EventTypeWarning, EventReasonTargetReadyTimeout,
 		"target Deployment %s/%s had %d ready replicas after waiting %s",
 		cr.Namespace, cr.Spec.TargetRef.Name, readyReplicas, timeout)
-	metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
-	metrics.DiagnosticAlertsTotal.WithLabelValues("TargetNotReady", "Critical").Inc()
+	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
+	metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, "TargetNotReady", "Critical").Inc()
 	return r.setPhase(ctx, cr, PhaseError)
 }
 
@@ -524,8 +527,8 @@ func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1a
 		Recommendation: rec,
 	})
 	r.eventf(cr, corev1.EventTypeWarning, EventReasonTLSCABundleMissing, "%s", msg)
-	metrics.RunsTotal.WithLabelValues(metrics.VerdictUnknown).Inc()
-	metrics.DiagnosticAlertsTotal.WithLabelValues("TLSCABundleMissing", "Critical").Inc()
+	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
+	metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, "TLSCABundleMissing", "Critical").Inc()
 	_, err := r.setPhase(ctx, cr, PhaseError)
 	return err
 }
