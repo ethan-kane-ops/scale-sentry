@@ -63,6 +63,52 @@ func TestApplyReport(t *testing.T) {
 	}
 }
 
+func TestAppendRunHistory(t *testing.T) {
+	newHistory := func(n int) []v1alpha1.RunSummary {
+		h := make([]v1alpha1.RunSummary, n)
+		for i := range h {
+			h[i] = v1alpha1.RunSummary{Phase: PhaseSucceeded}
+		}
+		return h
+	}
+
+	tests := []struct {
+		name         string
+		existing     []v1alpha1.RunSummary
+		wantLen      int
+		wantNewFirst bool
+	}{
+		{"empty history gets first entry", nil, 1, true},
+		{"prepends ahead of existing entries", newHistory(3), 4, true},
+		{"truncates at RunHistoryLimit", newHistory(v1alpha1.RunHistoryLimit), v1alpha1.RunHistoryLimit, true},
+		{"truncates when already over the limit", newHistory(v1alpha1.RunHistoryLimit + 5), v1alpha1.RunHistoryLimit, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cr := &v1alpha1.ScaleValidation{Status: v1alpha1.ScaleValidationStatus{
+				Phase:            PhaseFailed,
+				SLAStatus:        "Fail",
+				TrafficIntegrity: "Pass",
+				FailureRate:      0.12,
+				History:          tt.existing,
+			}}
+			appendRunHistory(cr)
+
+			if len(cr.Status.History) != tt.wantLen {
+				t.Fatalf("len(History) = %d, want %d", len(cr.Status.History), tt.wantLen)
+			}
+			head := cr.Status.History[0]
+			if tt.wantNewFirst && (head.Phase != PhaseFailed || head.SLAStatus != "Fail" ||
+				head.TrafficIntegrity != "Pass" || head.FailureRate != 0.12) {
+				t.Errorf("newest entry not at History[0]: %+v", head)
+			}
+			if head.FinishedAt.IsZero() {
+				t.Error("FinishedAt not set on new entry")
+			}
+		})
+	}
+}
+
 func TestTargetReady(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {

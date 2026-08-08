@@ -419,6 +419,56 @@ spec:
                 description: FailureRate is the ratio of failed to total requests
                   (e.g. 0.0066 = 0.66%).
                 type: number
+              history:
+                description: |-
+                  History holds the most recent terminal runs, newest first, bounded to
+                  RunHistoryLimit entries. Lets a single `kubectl get -o json` answer
+                  "did this get worse over the last N releases" without a metrics stack.
+                items:
+                  description: |-
+                    RunSummary is a compact record of one terminal run, kept in
+                    ScaleValidationStatus.History so trend ("did this get worse over the
+                    last N releases") is visible from `kubectl get -o json` alone, without
+                    requiring a Prometheus scrape of scale_sentry_runs_total. Deliberately
+                    excludes Diagnostics: that field can grow arbitrarily large per run,
+                    which is fine for a single current-status snapshot but would make a
+                    History slice's size unbounded.
+                  properties:
+                    failureRate:
+                      description: FailureRate mirrors the top-level status.failureRate
+                        at run completion.
+                      type: number
+                    finishedAt:
+                      description: FinishedAt is when this run reached a terminal
+                        phase.
+                      format: date-time
+                      type: string
+                    phase:
+                      description: Phase is the terminal phase this run reached (Succeeded
+                        or Failed).
+                      type: string
+                    slaStatus:
+                      description: SLAStatus mirrors the top-level status.slaStatus
+                        at run completion.
+                      enum:
+                      - Pass
+                      - Fail
+                      - Unknown
+                      type: string
+                    trafficIntegrity:
+                      description: TrafficIntegrity mirrors the top-level status.trafficIntegrity
+                        at run completion.
+                      enum:
+                      - Pass
+                      - Fail
+                      - Unknown
+                      type: string
+                  required:
+                  - finishedAt
+                  - phase
+                  type: object
+                maxItems: 10
+                type: array
               lastRunTime:
                 description: LastRunTime is the timestamp of the most recent validation
                   execution.
