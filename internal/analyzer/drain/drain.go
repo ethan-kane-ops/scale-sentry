@@ -2,10 +2,13 @@
 // failures from the load generator with the timestamps pod endpoints are
 // removed from EndpointSlices.
 //
-// Errors that land *after* an endpoint is removed indicate the pod stopped
+// Errors that land around an endpoint removal indicate the pod stopped
 // accepting connections without draining in-flight requests, typically a
 // missing preStop hook, too-short terminationGracePeriodSeconds, or a
-// SIGTERM that propagated faster than kube-proxy could update iptables.
+// SIGTERM that propagated faster than kube-proxy could update iptables. The
+// removal timestamp itself is the observer's informer-watch receive time,
+// not the moment the pod actually stopped serving, so a real drop can be
+// stamped slightly *before* the removal it belongs to; see DefaultLookback.
 //
 // drain reuses leakage.EndpointEvent and leakage.ErrorSample on purpose:
 // the controller produces exactly one endpoint-event stream and one
@@ -26,6 +29,17 @@ import (
 // failed request counts as an ungraceful-drain drop. A graceful shutdown
 // produces no new failures once the endpoint is gone.
 const DefaultDrainWindow = 10 * time.Second
+
+// DefaultLookback is the time before an endpoint removal during which a
+// failed request still counts as a drop attributed to that removal.
+// Endpoint event timestamps are recorded when the observer's informer
+// watch receives them, which trails the pod actually going unready by
+// anywhere from a few ms (warm watch) to several hundred (cold watch /
+// busy apiserver) — see internal/observer's MetricsLikelySkewed
+// diagnostic. Without this tolerance, the fastest, most-ungraceful drops
+// (the ones this analyzer exists to catch) land just before the delayed
+// removal timestamp and get misclassified as unrelated/clean.
+const DefaultLookback = 2 * time.Second
 
 // criticalDroppedCount is the drop count above which the diagnostic
 // escalates from Warning to Critical.
@@ -91,13 +105,16 @@ func Correlate(events []leakage.EndpointEvent, errors []leakage.ErrorSample, dra
 	// Two-pointer scan over sorted removals + sorted errors, same
 	// rationale as the leakage analyzer: both streams move forward in
 	// time, so a closed drain window cannot re-open for later errors,
-	// turning the old O(R*E) match into O(R + E).
+	// turning the old O(R*E) match into O(R + E). Widening the window's
+	// start by DefaultLookback keeps removal windows' bounds monotonic
+	// (each removal is later than the last, so its lookback-adjusted
+	// start is too), so the scan stays forward-only.
 	j := 0
 	for _, es := range sorted {
 		for j < len(removals) && !es.At.Before(removals[j].At.Add(drainWindow)) {
 			j++
 		}
-		if j >= len(removals) || es.At.Before(removals[j].At) {
+		if j >= len(removals) || es.At.Before(removals[j].At.Add(-DefaultLookback)) {
 			r.CleanRequests++
 			continue
 		}

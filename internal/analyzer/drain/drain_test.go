@@ -39,6 +39,26 @@ func TestCorrelate_DroppedAndClean(t *testing.T) {
 	}
 }
 
+func TestCorrelate_LookbackToleratesInformerLag(t *testing.T) {
+	start := t0()
+	events := []leakage.EndpointEvent{
+		{At: start.Add(10 * time.Second), PodIP: "10.0.0.1", Kind: leakage.EndpointRemoved},
+	}
+	errors := []leakage.ErrorSample{
+		{At: start.Add(10*time.Second - 500*time.Millisecond), Category: "ConnReset"}, // dropped: within lookback
+		{At: start.Add(10*time.Second - DefaultLookback), Category: "ConnReset"},      // dropped: exactly at the boundary
+		{At: start.Add(5 * time.Second), Category: "Dial"},                            // clean: well before lookback
+	}
+
+	r := Correlate(events, errors, 0)
+	if r.DroppedRequests != 2 {
+		t.Errorf("DroppedRequests = %d, want 2", r.DroppedRequests)
+	}
+	if r.CleanRequests != 1 {
+		t.Errorf("CleanRequests = %d, want 1", r.CleanRequests)
+	}
+}
+
 func TestCorrelate_IgnoresReadyEvents(t *testing.T) {
 	start := t0()
 	events := []leakage.EndpointEvent{
