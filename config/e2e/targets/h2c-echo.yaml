@@ -7,6 +7,17 @@
 #
 # The Service marks appProtocol=kubernetes.io/h2c so Envoy Gateway keeps
 # h2 framing end-to-end instead of downgrading to HTTP/1 upstream.
+#
+# Resources:
+#   requests.cpu=10m, limits.cpu=200m; CPU-only HPA target=70% (~7m).
+#   Caddy answering a static string over h2c is the cheapest target in
+#   this fixture set: measured at 12-13m sustained (20m peak) under the
+#   200 RPS these validations drive, because h2 amortises connection
+#   setup and compresses headers. At the old 50m request that is only
+#   ~25% utilisation, so the HPA correctly never scaled and the scenario
+#   could only pass when a slow shared runner inflated the per-request
+#   CPU cost enough to cross 70%. 10m puts the same load at ~125%,
+#   decisive on fast and slow hardware alike.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -51,7 +62,7 @@ spec:
               subPath: Caddyfile
               readOnly: true
           resources:
-            requests: { cpu: 50m, memory: 64Mi }
+            requests: { cpu: 10m, memory: 64Mi }
             limits:   { cpu: 200m, memory: 128Mi }
           readinessProbe:
             # Caddy also answers HTTP/1 on the same listener, so a plain

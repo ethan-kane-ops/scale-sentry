@@ -9,6 +9,18 @@
 #
 # The Service marks appProtocol=grpc so Envoy Gateway routes h2 framing
 # end-to-end without falling back to HTTP/1 upstream.
+#
+# Resources:
+#   requests.cpu=20m, limits.cpu=200m; CPU-only HPA target=70% (~14m).
+#   A unary Health/Check RPC is cheap: measured at 26-29m sustained under
+#   the 200 RPS these validations drive. At the old 50m request that is
+#   only ~55% utilisation, just under the 70% target, so the HPA scaled
+#   solely on nights when a slow shared runner inflated the per-request
+#   CPU cost enough to tip it over. 20m puts the same load at ~190%,
+#   decisive on fast and slow hardware alike, and lands on 2 replicas:
+#   scaling harder than that churns gRPC connections during rebalance
+#   and pushes the failed-request ratio toward the 1% traffic-integrity
+#   threshold, trading an SLA flake for a traffic one.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -32,7 +44,7 @@ spec:
             - containerPort: 50051
               name: grpc
           resources:
-            requests: { cpu: 50m, memory: 64Mi }
+            requests: { cpu: 20m, memory: 64Mi }
             limits:   { cpu: 200m, memory: 128Mi }
           readinessProbe:
             tcpSocket: { port: 50051 }
