@@ -1,7 +1,7 @@
 # One Dockerfile, three images. Pass --build-arg CMD=<name> to select the
 # binary (scale-sentry | loadgen | observer); the justfile docker-build
 # recipe builds all three.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG CMD=scale-sentry
