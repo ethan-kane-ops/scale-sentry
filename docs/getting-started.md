@@ -59,7 +59,7 @@ Read the full verdict off the status subresource:
 kubectl get scalevalidation podinfo-default -o yaml
 ```
 
-Key status fields: `phase` (Pending / Running / Succeeded / Failed / Error / Terminating), `slaStatus` and `trafficIntegrity` (Pass / Fail / Unknown), `scaleUpDuration` (measured HPA reaction), `totalRequests` / `failedRequests` / `failureRate`, and `diagnostics` (the analyzer findings, each with an alert name and severity). The [Events](events.md) page maps every lifecycle transition; [Observability](observability.md) covers the matching Prometheus metrics.
+Key status fields: `phase` (Pending / Running / Succeeded / Failed / Error / Terminating), `slaStatus` and `trafficIntegrity` (Pass / Fail / Unknown), `scaleUpDuration` (measured HPA reaction), `totalRequests` / `failedRequests` / `failureRate`, `diagnostics` (the analyzer findings, each with an alert name and severity), and `history` (the last ten terminal verdicts, newest first, so trend is visible without a metrics stack). The [Events](events.md) page maps every lifecycle transition; [Observability](observability.md) covers the matching Prometheus metrics.
 
 ## Sample library
 

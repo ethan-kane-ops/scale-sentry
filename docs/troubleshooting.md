@@ -34,6 +34,31 @@ kubectl -n kube-system patch deploy metrics-server --type=json \
 
 Also confirm the target actually has an HPA: scale-sentry validates HPA behavior, it does not create one for you.
 
+## `HPAScaleLatency` says `reaction=0s, replicas 1 → 1 (desired 1)`
+
+This one is not a timing problem, and widening the SLA will not fix it. `reaction=0s` with
+`desired` equal to `replicas` means the autoscaler never *wanted* to scale: the target's CPU
+utilisation never crossed its own threshold, so there was nothing to react to.
+
+The usual cause is a CPU request set well above what the workload actually uses. Utilisation
+is measured against the request, not the limit, so a generous request makes real load look
+idle:
+
+```bash
+kubectl get hpa <target>                 # TARGETS shows e.g. 24%/70% at peak load
+kubectl top pod -l app=<target>          # actual millicores under load
+kubectl get deploy <target> \
+  -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}{"\n"}'
+```
+
+If the measured figure sits below 70% of the request while the load generator is at full
+rate, either lower the request to match reality or raise `spec.load.baseRps` until the
+workload genuinely needs more capacity. A run that cannot cross its own threshold is
+reporting the truth: that HPA would not have scaled in production either.
+
+Sample the numbers *during* the run, not after. Load stops at the end of the window and
+`kubectl top` drops back to idle within a scrape or two.
+
 ## Run goes to `Error` with `LoadgenJobFailed`
 
 The loadgen pod exited non-zero and produced no usable result. Read its logs before it is garbage-collected:

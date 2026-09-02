@@ -2,12 +2,14 @@
 
 This is a statement of direction, not a promise of dates. Items move when evidence (users, failures, adoption) says they should. Issues are tracked on the [issue tracker](https://github.com/ethan-kane-ops/scale-sentry/issues).
 
-## Near term (v0.4.x)
+## Delivered in v0.4.0
 
 - **E2E scenario matrix**: gRPC, HTTP/2, Gateway, chaos-disruption, finalizer, and annotation-bridge scenarios running nightly in CI, with the race detector on the unit path.
 - **Fuzzing**: native Go fuzz targets for the cgroup, report, and annotation parsers, on a weekly CI budget.
 - **Day-two docs**: task guides (gRPC validation, Envoy Gateway, CI gating) and a troubleshooting page.
 - **Visual polish**: run-lifecycle sequence diagram, README hero, reproducible demo recording.
+- **Run history**: the last ten terminal verdicts are kept in `status.history`, so trend is
+  visible from `kubectl get -o json` without a metrics stack.
 
 ## API graduation: v1alpha1 to v1beta1
 
@@ -28,4 +30,4 @@ Until then `v1alpha1` may change between minors; changes are called out in relea
 
 ## Kubernetes version support
 
-Built and tested against the version pinned in CI (currently Kubernetes 1.34). An envtest matrix against N-1 / N-2 is planned as part of the e2e scenario work; until it lands, older minors likely work but are not verified.
+Kubernetes 1.34 is the supported floor. The nightly envtest matrix runs the controller suite against 1.35 and 1.34, and the kind-based e2e suite runs against the version pinned in CI. Minors older than 1.34 may work but are not verified.
