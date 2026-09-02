@@ -73,9 +73,16 @@ jobs:
       # Matrix fixtures assert HPA convergence inside a tight, real-time SLA
       # window (2m). ubuntu-latest is a 2-core shared runner already busy
       # with kind + metrics-server + Envoy Gateway, so scrape/sync-loop
-      # jitter can burn enough of that window to read as a false SLA miss.
-      # Widen the fixtures' own SLA by 50% here only; local runs against
-      # dedicated capacity keep the documented values (multiplier unset -> 1).
+      # jitter can eat into that window. Widen the fixtures' own SLA by 50%
+      # here only; local runs against dedicated capacity keep the documented
+      # values (multiplier unset -> 1).
+      #
+      # This is margin, not a flake fix. The long-running nightly failures
+      # were never a blown window: they reported reaction=0s, meaning the
+      # HPA never fired at all. That had two causes, both fixed at source -
+      # fixture CPU requests set too high to ever cross their own target,
+      # and no cold-start reset between scenarios. If a scenario fails
+      # again, read `reaction` before reaching for this knob.
       E2E_SLA_MULTIPLIER: "1.5"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
