@@ -57,6 +57,10 @@ func runValidationFixture(t *testing.T, c client.Client, ctx context.Context, cr
 func prepareFixtureTarget(t *testing.T, c client.Client, ctx context.Context, workload string) {
 	t.Helper()
 	installMetricsServer(t, ctx)
+	// Reset before the apply, not after: the reset deletes the HPA to clear
+	// its scale-down stabilisation history, and applyProtocolFixtures then
+	// recreates it from the same manifest.
+	resetTargetToColdStart(t, c, ctx, workload)
 	applyProtocolFixtures(t, c, ctx)
 	if err := waitForDeploymentReady(ctx, c, fixtureNamespace, workload, deploymentReadyAfter); err != nil {
 		t.Fatalf("target %s not ready: %v", workload, err)
