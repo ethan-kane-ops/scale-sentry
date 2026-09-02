@@ -1,6 +1,6 @@
 module github.com/ethan-kane-ops/scale-sentry
 
-go 1.26.5
+go 1.26.8
 
 require (
 	github.com/HdrHistogram/hdrhistogram-go v1.3.0
