@@ -61,7 +61,17 @@ Standard five-field cron, plus the usual descriptors: `@hourly`, `@daily`, `@wee
 
 **Runs never overlap.** The schedule is only evaluated once a run has reached a terminal phase, so a run that overruns its own interval delays the next one rather than racing it. Two load generators against one target would measure nothing useful.
 
-**Pausing.** `spec.suspend: true` stops future runs. A run already in flight is left alone to finish, the last verdict stays on `status`, and `status.nextRunTime` is cleared so `kubectl get` does not advertise a run that will not happen. Set it back to `false` to resume.
+**Pausing.** `spec.suspend: true` stops future runs. A run already in flight is left alone to finish, the last verdict stays on `status`, and `status.nextRunTime` is cleared so `kubectl get` does not advertise a run that will not happen. Set it back to `false` to resume, which runs once and then returns to the schedule.
+
+Suspend outranks everything, including the spec-edit behaviour below. Setting it is itself an edit, so it has to, or suspending would start the run it exists to prevent.
+
+## Editing a validation
+
+Editing the spec of a finished validation starts a new run. This applies to one-shot and scheduled validations alike: the result on a CR describes the spec that produced it, so leaving a stale verdict next to an edited spec would be misleading.
+
+The controller tracks this with `status.observedGeneration`. When it lags `metadata.generation`, the spec has changed since the last result and a fresh run is started, with a `SpecChanged` Event naming both generations. Status writes do not bump `metadata.generation`, so this cannot loop.
+
+One case worth knowing: a `spec.schedule` edited to something unparseable moves the CR to `Error` with a `ScheduleInvalid` diagnostic rather than quietly ceasing to reschedule. Editing it back to a valid expression recovers the CR in place, with no need to delete and recreate it.
 
 ```console
 $ kubectl get scalevalidation

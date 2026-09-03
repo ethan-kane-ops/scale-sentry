@@ -58,6 +58,28 @@ func lastRunAnchor(cr *v1alpha1.ScaleValidation) time.Time {
 func (r *ScaleValidationReconciler) reconcileTerminal(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
+	if cr.Status.ObservedGeneration == 0 {
+		// A CR that finished before observedGeneration existed. Adopt the
+		// current generation rather than reading the absence as drift,
+		// which would re-run every historical CR once on upgrade.
+		cr.Status.ObservedGeneration = cr.Generation
+		if err := r.Status().Update(ctx, cr); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adopt observed generation: %w", err)
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Suspend outranks everything below, including a spec edit. Setting
+	// suspend is itself an edit, so checking drift first would make the
+	// act of suspending start a run, which inverts the field.
+	if cr.Spec.Suspend {
+		return r.parkSuspended(ctx, cr)
+	}
+
+	if cr.Generation != cr.Status.ObservedGeneration {
+		return r.restartForSpecChange(ctx, cr)
+	}
+
 	sched, err := parseSchedule(cr)
 	if err != nil {
 		// The schedule is validated before the first run, so reaching
@@ -67,19 +89,6 @@ func (r *ScaleValidationReconciler) reconcileTerminal(ctx context.Context, cr *v
 		return ctrl.Result{}, nil
 	}
 	if sched == nil {
-		return ctrl.Result{}, nil
-	}
-
-	if cr.Spec.Suspend {
-		// Drop any advertised next run so `kubectl get` does not promise
-		// something suspend will never deliver.
-		if cr.Status.NextRunTime == nil {
-			return ctrl.Result{}, nil
-		}
-		cr.Status.NextRunTime = nil
-		if err := r.Status().Update(ctx, cr); err != nil {
-			return ctrl.Result{}, fmt.Errorf("clear next run time: %w", err)
-		}
 		return ctrl.Result{}, nil
 	}
 
@@ -173,4 +182,56 @@ func (r *ScaleValidationReconciler) failScheduleInvalid(ctx context.Context, cr 
 	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
 	metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, "ScheduleInvalid", "Critical").Inc()
 	return r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonScheduleInvalid, msg)
+}
+
+// parkSuspended holds a suspended CR still. It drops any advertised next
+// run so `kubectl get` does not promise something suspend will never
+// deliver, and records the generation so the edit that suspended the CR is
+// not later replayed as drift. Writes only when something actually
+// changed, so a suspended CR does not churn its status on every reconcile.
+func (r *ScaleValidationReconciler) parkSuspended(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+	changed := false
+	if cr.Status.NextRunTime != nil {
+		cr.Status.NextRunTime = nil
+		changed = true
+	}
+	if cr.Status.ObservedGeneration != cr.Generation {
+		cr.Status.ObservedGeneration = cr.Generation
+		changed = true
+	}
+	if !changed {
+		return ctrl.Result{}, nil
+	}
+	if err := r.Status().Update(ctx, cr); err != nil {
+		return ctrl.Result{}, fmt.Errorf("park suspended validation: %w", err)
+	}
+	return ctrl.Result{}, nil
+}
+
+// restartForSpecChange handles a terminal CR whose spec has been edited
+// since the result on it was produced. The result describes a spec the
+// object no longer carries, so it is replaced by a fresh run rather than
+// left to mislead.
+//
+// The schedule is revalidated first. Without that, a CR parked in Error on
+// an unparseable schedule would run once more before failing again, and
+// the failure message would describe the run rather than the schedule.
+// Validating here is also what lets a broken schedule be fixed in place:
+// the edit bumps the generation, the new value parses, and the CR
+// recovers without being deleted and recreated.
+func (r *ScaleValidationReconciler) restartForSpecChange(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	if _, err := parseSchedule(cr); err != nil {
+		// The previous run's findings describe the old spec.
+		cr.Status.Diagnostics = nil
+		return r.failScheduleInvalid(ctx, cr, err)
+	}
+
+	log.Info("spec changed since the last result, starting a new run",
+		"generation", cr.Generation, "observedGeneration", cr.Status.ObservedGeneration)
+	r.eventf(cr, corev1.EventTypeNormal, EventReasonSpecChanged,
+		"spec changed (generation %d supersedes %d), starting a new run",
+		cr.Generation, cr.Status.ObservedGeneration)
+	return r.startNextRun(ctx, cr)
 }

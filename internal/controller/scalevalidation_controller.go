@@ -82,6 +82,7 @@ const (
 	EventReasonChaosSkipped       = "ChaosSkipped"
 	EventReasonRunScheduled       = "RunScheduled"
 	EventReasonScheduleInvalid    = "ScheduleInvalid"
+	EventReasonSpecChanged        = "SpecChanged"
 )
 
 // ScaleValidationReconciler reconciles a ScaleValidation object.

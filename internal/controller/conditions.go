@@ -52,7 +52,14 @@ const (
 // markFinished stages the Finished condition on cr without writing it.
 // Used by callers that already own a Status().Update and need the
 // condition to land in the same write as the rest of the run results.
+//
+// It also records status.observedGeneration. Reaching a terminal outcome
+// and observing the generation that produced it are the same event, so
+// keeping them in one place is what makes the drift check in
+// reconcileTerminal reliable: every path that ends a run marks the
+// generation, and none can forget to.
 func markFinished(cr *v1alpha1.ScaleValidation, reason, message string) {
+	cr.Status.ObservedGeneration = cr.Generation
 	meta.SetStatusCondition(&cr.Status.Conditions, metav1.Condition{
 		Type:               ConditionFinished,
 		Status:             metav1.ConditionTrue,
