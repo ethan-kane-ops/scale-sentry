@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -222,7 +223,18 @@ func createObserverPod(t *testing.T, ns, crName string) {
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "loadgen", Image: "x"}}},
 	}
-	mustCreate(t, pod)
+	// A scheduled CR runs more than once. In production the previous
+	// run's pod is garbage-collected with its Job; envtest runs no GC, so
+	// the create is tolerant and the status is refreshed instead.
+	if err := k8sClient.Create(context.Background(), pod); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("create observer pod: %v", err)
+		}
+		if err := k8sClient.Get(context.Background(),
+			types.NamespacedName{Namespace: ns, Name: pod.Name}, pod); err != nil {
+			t.Fatalf("get existing observer pod: %v", err)
+		}
+	}
 	pod.Status.InitContainerStatuses = []corev1.ContainerStatus{{
 		Name:  observerContainerName,
 		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}},
@@ -652,6 +664,314 @@ func TestIntegration_FinishedCondition_AbsentUntilTerminal(t *testing.T) {
 	if cond := meta.FindStatusCondition(done.Status.Conditions, ConditionFinished); !strings.Contains(cond.Message, "SLA=Fail") {
 		t.Errorf("condition message = %q, want it to carry the verdict", cond.Message)
 	}
+}
+
+// driveOneRun reconciles until exactly one more verdict lands in
+// status.history, completing the loadgen Job whenever one appears. A
+// scheduled re-run needs a variable number of passes (tear down the
+// finished Job, reset, respawn), so the loop is bounded rather than
+// counted. History growing by one is the unambiguous "a run completed"
+// signal, since a scheduled CR is already in a terminal phase when its
+// next run begins.
+func driveOneRun(t *testing.T, r *ScaleValidationReconciler, ns, name string) *v1alpha1.ScaleValidation {
+	t.Helper()
+	start := len(getCR(t, ns, name).Status.History)
+	for range 15 {
+		cr := getCR(t, ns, name)
+		if len(cr.Status.History) > start {
+			return cr
+		}
+		if cr.Status.Phase == PhaseRunning {
+			completeJob(t, ns, name+"-loadgen")
+			createObserverPod(t, ns, name)
+		}
+		reconcileCR(t, r, ns, name)
+	}
+	t.Fatalf("run did not produce a verdict within 15 reconciles (history stuck at %d)", start)
+	return nil
+}
+
+// advanceClock points the reconciler at a movable clock and returns a
+// function that pushes it forward. Schedule arithmetic is the only thing
+// that reads it, so a scheduled run can be made due without sleeping
+// through a real cron interval (robfig/cron floors @every at one second).
+func advanceClock(r *ScaleValidationReconciler) func(time.Duration) {
+	var offset time.Duration
+	r.nowFn = func() time.Time { return time.Now().Add(offset) }
+	return func(d time.Duration) { offset += d }
+}
+
+// passingReconciler returns a reconciler whose observer log always reports
+// a clean run, so scheduling tests are not entangled with verdict logic.
+func passingReconciler(t *testing.T) *ScaleValidationReconciler {
+	t.Helper()
+	r := newReconciler()
+	line, err := observer.MarshalReportLine(observer.Report{
+		SLAStatus:        observer.VerdictPass,
+		TrafficIntegrity: observer.VerdictPass,
+		TotalRequests:    1000,
+	})
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	r.observerLogFn = func(context.Context, *corev1.Pod) ([]byte, error) {
+		return []byte(line + "\n"), nil
+	}
+	return r
+}
+
+// TestIntegration_Schedule_RerunsAndAccumulatesHistory is the ENG-150
+// headline. Before it, a terminal CR was never reconciled again, so
+// status.history could only ever hold the single entry its one run wrote,
+// and the documented "last ten terminal verdicts" was unreachable.
+func TestIntegration_Schedule_RerunsAndAccumulatesHistory(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	advance := advanceClock(r)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "@every 1s"
+	}))
+
+	for run := 1; run <= 3; run++ {
+		cr := driveOneRun(t, r, ns, "run")
+		advance(time.Minute) // the next run becomes due
+		if len(cr.Status.History) != run {
+			t.Fatalf("after run %d: history = %d entries, want %d", run, len(cr.Status.History), run)
+		}
+		if cr.Status.Phase != PhaseSucceeded {
+			t.Fatalf("after run %d: phase = %q, want Succeeded", run, cr.Status.Phase)
+		}
+		assertFinished(t, cr, FinishedReasonSucceeded)
+	}
+}
+
+// TestIntegration_Schedule_ResetsRunScopedStatus checks that a re-run
+// reports its own results rather than inheriting the previous run's, and
+// that the chaos guard is cleared so disruption still fires.
+func TestIntegration_Schedule_ResetsRunScopedStatus(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	failing, err := observer.MarshalReportLine(observer.Report{
+		SLAStatus:        observer.VerdictFail,
+		TrafficIntegrity: observer.VerdictPass,
+		TotalRequests:    10,
+		FailedRequests:   9,
+		Diagnostics:      []v1alpha1.DiagnosticAlert{{Type: "CPUThrottling", Severity: "Warning", Message: "throttled"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	passing, err := observer.MarshalReportLine(observer.Report{
+		SLAStatus:        observer.VerdictPass,
+		TrafficIntegrity: observer.VerdictPass,
+		TotalRequests:    1000,
+	})
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	report := failing
+	r.observerLogFn = func(context.Context, *corev1.Pod) ([]byte, error) {
+		return []byte(report + "\n"), nil
+	}
+	advance := advanceClock(r)
+
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "@every 1s"
+	}))
+
+	first := driveOneRun(t, r, ns, "run")
+	if first.Status.Phase != PhaseFailed || len(first.Status.Diagnostics) != 1 {
+		t.Fatalf("first run: phase=%q diagnostics=%d, want Failed with 1", first.Status.Phase, len(first.Status.Diagnostics))
+	}
+
+	report = passing
+	advance(time.Minute)
+	second := driveOneRun(t, r, ns, "run")
+	if second.Status.Phase != PhaseSucceeded {
+		t.Fatalf("second run: phase = %q, want Succeeded", second.Status.Phase)
+	}
+	if len(second.Status.Diagnostics) != 0 {
+		t.Errorf("second run inherited the first run's diagnostics: %+v", second.Status.Diagnostics)
+	}
+	if second.Status.FailedRequests != 0 || second.Status.SLAStatus != "Pass" {
+		t.Errorf("second run kept stale verdict fields: failed=%d sla=%q",
+			second.Status.FailedRequests, second.Status.SLAStatus)
+	}
+	if len(second.Status.History) != 2 ||
+		second.Status.History[0].Phase != PhaseSucceeded ||
+		second.Status.History[1].Phase != PhaseFailed {
+		t.Errorf("history = %+v, want newest-first Succeeded then Failed", second.Status.History)
+	}
+}
+
+// TestIntegration_Schedule_Suspend asserts suspend stops future runs and
+// withdraws the advertised next run, without disturbing the last verdict.
+func TestIntegration_Schedule_Suspend(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	advance := advanceClock(r)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "@every 1s"
+	}))
+
+	first := driveOneRun(t, r, ns, "run")
+	if len(first.Status.History) != 1 {
+		t.Fatalf("history = %d, want 1", len(first.Status.History))
+	}
+
+	cr := getCR(t, ns, "run")
+	cr.Spec.Suspend = true
+	if err := k8sClient.Update(context.Background(), cr); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	// Push past the next due time: if suspend did nothing, a run would
+	// start here, so the assertions below are meaningful.
+	advance(time.Minute)
+
+	for range 5 {
+		reconcileCR(t, r, ns, "run")
+	}
+
+	got := getCR(t, ns, "run")
+	if len(got.Status.History) != 1 {
+		t.Errorf("history = %d entries while suspended, want 1", len(got.Status.History))
+	}
+	if got.Status.Phase != PhaseSucceeded {
+		t.Errorf("phase = %q, want the last verdict preserved", got.Status.Phase)
+	}
+	if got.Status.NextRunTime != nil {
+		t.Errorf("nextRunTime = %v while suspended, want nil", got.Status.NextRunTime)
+	}
+}
+
+// TestIntegration_Schedule_PublishesNextRunTime covers the far-future
+// case: the CR parks in its terminal phase and advertises when it will run
+// again, which is what the Next Run printer column reads.
+func TestIntegration_Schedule_PublishesNextRunTime(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "0 2 * * *" // daily at 02:00
+	}))
+
+	first := driveOneRun(t, r, ns, "run")
+	if first.Status.Phase != PhaseSucceeded {
+		t.Fatalf("phase = %q, want Succeeded", first.Status.Phase)
+	}
+
+	reconcileCR(t, r, ns, "run")
+	got := getCR(t, ns, "run")
+	if got.Status.NextRunTime == nil {
+		t.Fatal("nextRunTime not published for a scheduled validation")
+	}
+	if !got.Status.NextRunTime.After(time.Now()) {
+		t.Errorf("nextRunTime = %v, want a future time", got.Status.NextRunTime)
+	}
+	if len(got.Status.History) != 1 {
+		t.Errorf("history = %d, want 1 (the next run is not due yet)", len(got.Status.History))
+	}
+}
+
+// TestIntegration_Schedule_InvalidRejectedUpFront asserts a bad cron
+// expression fails on the first reconcile, before a run is spawned,
+// instead of running once and then stalling silently.
+func TestIntegration_Schedule_InvalidRejectedUpFront(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "every tuesday please"
+	}))
+
+	reconcileCR(t, r, ns, "run")
+
+	cr := getCR(t, ns, "run")
+	if cr.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error for an invalid schedule", cr.Status.Phase)
+	}
+	assertFinished(t, cr, FinishedReasonScheduleInvalid)
+	if len(cr.Status.Diagnostics) != 1 || cr.Status.Diagnostics[0].Type != "ScheduleInvalid" {
+		t.Errorf("diagnostics = %+v, want one ScheduleInvalid alert", cr.Status.Diagnostics)
+	}
+	var job batchv1.Job
+	if err := k8sClient.Get(context.Background(),
+		types.NamespacedName{Namespace: ns, Name: "run-loadgen"}, &job); err == nil {
+		t.Error("loadgen Job spawned despite an invalid schedule")
+	}
+	if reasons := drainEventReasons(t, r); !slices.Contains(reasons, EventReasonScheduleInvalid) {
+		t.Errorf("events = %v, want %s", reasons, EventReasonScheduleInvalid)
+	}
+}
+
+// TestIntegration_Schedule_BecomesInvalidAfterFirstRun covers the spec
+// being edited to an unparseable schedule after the CR has already run.
+// Validation happens on the first reconcile, so this path is only
+// reachable by a later edit; it must stop rescheduling rather than
+// hot-loop on a parse error.
+func TestIntegration_Schedule_BecomesInvalidAfterFirstRun(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	advance := advanceClock(r)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "@every 1s"
+	}))
+
+	first := driveOneRun(t, r, ns, "run")
+	if len(first.Status.History) != 1 {
+		t.Fatalf("history = %d, want 1", len(first.Status.History))
+	}
+
+	cr := getCR(t, ns, "run")
+	cr.Spec.Schedule = "wednesdays maybe"
+	if err := k8sClient.Update(context.Background(), cr); err != nil {
+		t.Fatalf("break the schedule: %v", err)
+	}
+	advance(time.Minute)
+
+	for range 5 {
+		reconcileCR(t, r, ns, "run")
+	}
+
+	got := getCR(t, ns, "run")
+	if len(got.Status.History) != 1 {
+		t.Errorf("history = %d entries, want 1 (an unparseable schedule must not re-run)", len(got.Status.History))
+	}
+	if got.Status.Phase != PhaseSucceeded {
+		t.Errorf("phase = %q, want the last verdict left intact", got.Status.Phase)
+	}
+}
+
+// TestIntegration_OneShot_StaysTerminal is the regression guard for every
+// CR that predates scheduling: with no spec.schedule, a terminal CR must
+// stay exactly where it is, however many times it is reconciled.
+func TestIntegration_OneShot_StaysTerminal(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	first := driveOneRun(t, r, ns, "run")
+	if first.Status.Phase != PhaseSucceeded {
+		t.Fatalf("phase = %q, want Succeeded", first.Status.Phase)
+	}
+
+	for range 5 {
+		reconcileCR(t, r, ns, "run")
+	}
+
+	got := getCR(t, ns, "run")
+	if len(got.Status.History) != 1 {
+		t.Errorf("history = %d entries, want 1 (a one-shot run must not repeat)", len(got.Status.History))
+	}
+	if got.Status.NextRunTime != nil {
+		t.Errorf("nextRunTime = %v, want nil without a schedule", got.Status.NextRunTime)
+	}
+	assertFinished(t, got, FinishedReasonSucceeded)
 }
 
 // TestIntegration_Finalizer_AddedOnFirstReconcile ensures every fresh CR

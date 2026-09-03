@@ -224,6 +224,26 @@ type ScaleValidationSpec struct {
 	// Disruption configures optional chaos injection during the validation.
 	// +optional
 	Disruption *DisruptionConfig `json:"disruption,omitempty"`
+
+	// Schedule is an optional cron expression. When set, the validation
+	// re-runs on that schedule instead of running exactly once, and each
+	// verdict is appended to status.history so a trend is visible from
+	// `kubectl get -o json` alone. Standard five-field cron syntax plus
+	// the usual descriptors (@hourly, @daily, @every 1h30m).
+	//
+	// Runs never overlap: the schedule is evaluated only once a run has
+	// reached a terminal phase, so a run that overruns its interval
+	// delays the next one rather than racing it.
+	// +optional
+	Schedule string `json:"schedule,omitempty"`
+
+	// Suspend stops future scheduled runs. A run already in flight is
+	// left alone to finish, and the last verdict stays on status, so
+	// suspending is safe mid-run and reversible. Ignored when schedule
+	// is empty.
+	// +optional
+	// +kubebuilder:default=false
+	Suspend bool `json:"suspend,omitempty"`
 }
 
 // DiagnosticAlert represents a single finding from the analysis engine.
@@ -310,6 +330,12 @@ type ScaleValidationStatus struct {
 	// +kubebuilder:validation:MaxItems=10
 	History []RunSummary `json:"history,omitempty"`
 
+	// NextRunTime is when the next scheduled run is due. Empty for a
+	// one-shot validation, and cleared while spec.suspend is true so
+	// `kubectl get` never advertises a run that will not happen.
+	// +optional
+	NextRunTime *metav1.Time `json:"nextRunTime,omitempty"`
+
 	// Conditions follow the standard Kubernetes conditions pattern.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -320,6 +346,8 @@ type ScaleValidationStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="SLA",type=string,JSONPath=`.status.slaStatus`
 // +kubebuilder:printcolumn:name="Traffic",type=string,JSONPath=`.status.trafficIntegrity`
+// +kubebuilder:printcolumn:name="Schedule",type=string,JSONPath=`.spec.schedule`
+// +kubebuilder:printcolumn:name="Next Run",type=date,JSONPath=`.status.nextRunTime`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ScaleValidation is the Schema for the scalevalidations API.

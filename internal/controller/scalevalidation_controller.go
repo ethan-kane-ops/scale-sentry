@@ -80,6 +80,8 @@ const (
 	EventReasonFinalizerDraining  = "FinalizerDraining"
 	EventReasonChaosInjected      = "ChaosInjected"
 	EventReasonChaosSkipped       = "ChaosSkipped"
+	EventReasonRunScheduled       = "RunScheduled"
+	EventReasonScheduleInvalid    = "ScheduleInvalid"
 )
 
 // ScaleValidationReconciler reconciles a ScaleValidation object.
@@ -108,6 +110,20 @@ type ScaleValidationReconciler struct {
 	// readiness-gate timeout path can be exercised without sleeping. Zero
 	// means use the production default.
 	targetReadyTimeout time.Duration
+	// nowFn overrides the clock used for schedule arithmetic so the
+	// scheduling tests can advance time deterministically instead of
+	// sleeping through real cron intervals. Production leaves it nil.
+	nowFn func() time.Time
+}
+
+// now is the reconciler's clock, overridable in tests. It is used only
+// for schedule arithmetic; everything else takes timestamps from the
+// apiserver.
+func (r *ScaleValidationReconciler) now() time.Time {
+	if r.nowFn != nil {
+		return r.nowFn()
+	}
+	return time.Now()
 }
 
 // eventf emits an Event against cr, no-oping if Recorder is unset.
@@ -157,8 +173,13 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	switch cr.Status.Phase {
 	case PhaseSucceeded, PhaseFailed, PhaseError:
-		return ctrl.Result{}, nil
+		// One-shot validations stop here, as they always have. A
+		// scheduled one parks until its next due time or starts it.
+		return r.reconcileTerminal(ctx, &cr)
 	case "":
+		if _, err := parseSchedule(&cr); err != nil {
+			return r.failScheduleInvalid(ctx, &cr, err)
+		}
 		return r.setPhase(ctx, &cr, PhasePending)
 	}
 

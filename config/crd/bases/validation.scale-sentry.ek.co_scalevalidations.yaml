@@ -24,6 +24,12 @@ spec:
     - jsonPath: .status.trafficIntegrity
       name: Traffic
       type: string
+    - jsonPath: .spec.schedule
+      name: Schedule
+      type: string
+    - jsonPath: .status.nextRunTime
+      name: Next Run
+      type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -175,10 +181,30 @@ spec:
                 - baseRps
                 - concurrencyFactor
                 type: object
+              schedule:
+                description: |-
+                  Schedule is an optional cron expression. When set, the validation
+                  re-runs on that schedule instead of running exactly once, and each
+                  verdict is appended to status.history so a trend is visible from
+                  `kubectl get -o json` alone. Standard five-field cron syntax plus
+                  the usual descriptors (@hourly, @daily, @every 1h30m).
+
+                  Runs never overlap: the schedule is evaluated only once a run has
+                  reached a terminal phase, so a run that overruns its interval
+                  delays the next one rather than racing it.
+                type: string
               sla:
                 description: SLA is the maximum allowed duration for HPA scale-up
                   and pod readiness.
                 type: string
+              suspend:
+                default: false
+                description: |-
+                  Suspend stops future scheduled runs. A run already in flight is
+                  left alone to finish, and the last verdict stays on status, so
+                  suspending is safe mid-run and reversible. Ignored when schedule
+                  is empty.
+                type: boolean
               target:
                 description: Target configures the HTTP endpoint and network routing
                   for load traffic.
@@ -472,6 +498,13 @@ spec:
               lastRunTime:
                 description: LastRunTime is the timestamp of the most recent validation
                   execution.
+                format: date-time
+                type: string
+              nextRunTime:
+                description: |-
+                  NextRunTime is when the next scheduled run is due. Empty for a
+                  one-shot validation, and cleared while spec.suspend is true so
+                  `kubectl get` never advertises a run that will not happen.
                 format: date-time
                 type: string
               phase:

@@ -30,8 +30,10 @@ const ConditionFinished = "Finished"
 
 // Reasons for ConditionFinished. Succeeded and VerdictFailed are the two
 // outcomes of a run that actually measured something; the rest name a
-// specific reason the run never produced a verdict. They are stable
-// strings, so alert routers can match on them without parsing messages.
+// specific reason the run never produced a verdict. Rescheduled is the one
+// reason paired with Status False: a scheduled validation starting its
+// next run. They are stable strings, so alert routers can match on them
+// without parsing messages.
 const (
 	FinishedReasonSucceeded                = "Succeeded"
 	FinishedReasonVerdictFailed            = "VerdictFailed"
@@ -43,6 +45,8 @@ const (
 	FinishedReasonObserverReportUnreadable = "ObserverReportUnreadable"
 	FinishedReasonTargetURLUnresolved      = "TargetURLUnresolved"
 	FinishedReasonJobBuildFailed           = "JobBuildFailed"
+	FinishedReasonScheduleInvalid          = "ScheduleInvalid"
+	FinishedReasonRescheduled              = "Rescheduled"
 )
 
 // markFinished stages the Finished condition on cr without writing it.

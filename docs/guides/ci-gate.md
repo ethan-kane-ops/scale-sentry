@@ -74,4 +74,4 @@ Prefer short-lived OIDC-federated credentials over a long-lived kubeconfig secre
 
 ## Alerting on verdicts outside CI
 
-For scheduled (non-pipeline) validations, alert on the metrics instead of polling status: `scale_sentry_runs_total{verdict="fail"}` and the `VerdictFail` Event reason are both stable interfaces. See [Observability](../observability.md) and [Events](../events.md).
+For scheduled (non-pipeline) validations, set [`spec.schedule`](../configuration.md#scheduling) and alert on the metrics instead of polling status: `scale_sentry_runs_total{verdict="fail"}` and the `VerdictFail` Event reason are both stable interfaces. A scheduled CR also keeps its last ten verdicts in `status.history`, so a trend is readable without a metrics stack. See [Observability](../observability.md) and [Events](../events.md).
