@@ -108,6 +108,7 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 					ServiceAccountName:            r.ObserverServiceAccount,
 					TerminationGracePeriodSeconds: &grace,
 					SecurityContext:               podSC,
+					ImagePullSecrets:              imagePullSecretRefs(r.ImagePullSecrets),
 					Volumes:                       volumes,
 					// The observer is a native sidecar, a restartPolicy:
 					// Always init container. It starts before the load
@@ -317,4 +318,18 @@ func targetURL(scheme, host string, port int32, path string) string {
 		path = "/" + path
 	}
 	return fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+}
+
+// imagePullSecretRefs converts the configured pull-secret names into the
+// reference list a PodSpec wants. Returns nil for an empty configuration so
+// the field is omitted entirely rather than serialised as an empty list.
+func imagePullSecretRefs(names []string) []corev1.LocalObjectReference {
+	if len(names) == 0 {
+		return nil
+	}
+	refs := make([]corev1.LocalObjectReference, 0, len(names))
+	for _, n := range names {
+		refs = append(refs, corev1.LocalObjectReference{Name: n})
+	}
+	return refs
 }

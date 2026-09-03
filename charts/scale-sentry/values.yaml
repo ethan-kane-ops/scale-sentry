@@ -26,6 +26,20 @@ controller:
   leaderElect: true
   # -- Verbose development logging
   devLogging: false
+  # -- imagePullSecrets for the controller Deployment AND the loadgen/observer Job pods it creates. Job pods are separate objects pulling the same images, so a private registry needs this set here rather than on the ServiceAccount alone.
+  imagePullSecrets: []
+  # -- Node labels the controller must be scheduled onto
+  nodeSelector: {}
+  # -- Taints the controller tolerates
+  tolerations: []
+  # -- Affinity rules for the controller. Note replicaCount > 1 already renders topologySpreadConstraints; set this only for placement beyond that.
+  affinity: {}
+  # -- PriorityClass for the controller. Worth setting: a controller evicted under node pressure stops reconciling silently.
+  priorityClassName: ""
+  # -- Extra annotations on the controller pod (scrape config, mesh injection opt-out, cost allocation)
+  podAnnotations: {}
+  # -- Extra labels on the controller pod
+  podLabels: {}
   # -- Topology spread constraints, rendered only when replicaCount > 1. Default: prefer spreading replicas across zones.
   topologySpreadConstraints:
   - maxSkew: 1

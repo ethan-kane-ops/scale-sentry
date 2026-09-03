@@ -352,6 +352,36 @@ func assertFlags(t *testing.T, args []string, want map[string]string) {
 	}
 }
 
+// TestBuildLoadgenJob_ImagePullSecrets covers the half of ENG-152 that is
+// Go rather than templating: the Job pods the controller creates are
+// separate objects that pull the same images as the controller, so a
+// private registry needs the secrets set on them too, not just on the
+// controller Deployment.
+func TestBuildLoadgenJob_ImagePullSecrets(t *testing.T) {
+	t.Run("configured secrets reach the job pod", func(t *testing.T) {
+		r := testReconciler()
+		r.ImagePullSecrets = []string{"regcred", "mirror"}
+		job, err := r.buildLoadgenJob(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
+		if err != nil {
+			t.Fatalf("buildLoadgenJob: %v", err)
+		}
+		got := job.Spec.Template.Spec.ImagePullSecrets
+		if len(got) != 2 || got[0].Name != "regcred" || got[1].Name != "mirror" {
+			t.Errorf("imagePullSecrets = %+v, want regcred then mirror", got)
+		}
+	})
+
+	t.Run("unset leaves the field absent", func(t *testing.T) {
+		job, err := testReconciler().buildLoadgenJob(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
+		if err != nil {
+			t.Fatalf("buildLoadgenJob: %v", err)
+		}
+		if got := job.Spec.Template.Spec.ImagePullSecrets; got != nil {
+			t.Errorf("imagePullSecrets = %+v, want nil so the field is omitted entirely", got)
+		}
+	})
+}
+
 func TestBuildLoadgenJob(t *testing.T) {
 	r := testReconciler()
 	r.LoadgenImage = "registry.test/loadgen:v1"

@@ -97,6 +97,11 @@ type ScaleValidationReconciler struct {
 	// ObserverServiceAccount is the ServiceAccount the Job pod runs as,
 	// granting the observer its read + pods/exec permissions.
 	ObserverServiceAccount string
+	// ImagePullSecrets are set on every loadgen Job pod. The controller's
+	// own pull secrets come from its Deployment, but the Job pods it
+	// creates are separate objects that pull the same images, so a private
+	// registry needs them threaded through here too.
+	ImagePullSecrets []string
 	// Recorder publishes Events against the ScaleValidation CR so
 	// `kubectl describe scalevalidation` narrates the run lifecycle.
 	// Nil is tolerated (eventf no-ops) so callers may stub the recorder
