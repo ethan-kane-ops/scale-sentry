@@ -907,11 +907,10 @@ func TestIntegration_Schedule_InvalidRejectedUpFront(t *testing.T) {
 	}
 }
 
-// TestIntegration_Schedule_BecomesInvalidAfterFirstRun covers the spec
-// being edited to an unparseable schedule after the CR has already run.
-// Validation happens on the first reconcile, so this path is only
-// reachable by a later edit; it must stop rescheduling rather than
-// hot-loop on a parse error.
+// TestIntegration_Schedule_BecomesInvalidAfterFirstRun covers a schedule
+// edited to something unparseable after the CR has already run. Before
+// ENG-153 the CR silently stopped rescheduling while advertising a stale
+// verdict; now the edit is noticed and the CR says why it stopped.
 func TestIntegration_Schedule_BecomesInvalidAfterFirstRun(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := passingReconciler(t)
@@ -938,11 +937,141 @@ func TestIntegration_Schedule_BecomesInvalidAfterFirstRun(t *testing.T) {
 	}
 
 	got := getCR(t, ns, "run")
+	if got.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error naming the broken schedule", got.Status.Phase)
+	}
+	assertFinished(t, got, FinishedReasonScheduleInvalid)
 	if len(got.Status.History) != 1 {
 		t.Errorf("history = %d entries, want 1 (an unparseable schedule must not re-run)", len(got.Status.History))
 	}
-	if got.Status.Phase != PhaseSucceeded {
-		t.Errorf("phase = %q, want the last verdict left intact", got.Status.Phase)
+	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "ScheduleInvalid" {
+		t.Errorf("diagnostics = %+v, want exactly one ScheduleInvalid alert", got.Status.Diagnostics)
+	}
+}
+
+// TestIntegration_SpecChange_RecoversABrokenSchedule is the other half:
+// the CR parked in Error above must come back by editing the schedule to
+// something valid, without being deleted and recreated.
+func TestIntegration_SpecChange_RecoversABrokenSchedule(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	advance := advanceClock(r)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "not a schedule"
+	}))
+
+	reconcileCR(t, r, ns, "run")
+	if got := getCR(t, ns, "run"); got.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error for an invalid schedule", got.Status.Phase)
+	}
+
+	cr := getCR(t, ns, "run")
+	cr.Spec.Schedule = "@every 1s"
+	if err := k8sClient.Update(context.Background(), cr); err != nil {
+		t.Fatalf("fix the schedule: %v", err)
+	}
+	advance(time.Minute)
+
+	fixed := driveOneRun(t, r, ns, "run")
+	if fixed.Status.Phase != PhaseSucceeded {
+		t.Fatalf("phase = %q, want Succeeded once the schedule is valid", fixed.Status.Phase)
+	}
+	if len(fixed.Status.Diagnostics) != 0 {
+		t.Errorf("diagnostics = %+v, want the stale ScheduleInvalid cleared", fixed.Status.Diagnostics)
+	}
+}
+
+// TestIntegration_SpecChange_RerunsAOneShot covers the plain case: editing
+// a terminal one-shot CR runs it again, where it used to be ignored with
+// no error and no Event.
+func TestIntegration_SpecChange_RerunsAOneShot(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	first := driveOneRun(t, r, ns, "run")
+	if first.Status.ObservedGeneration != first.Generation {
+		t.Fatalf("observedGeneration = %d, want %d", first.Status.ObservedGeneration, first.Generation)
+	}
+
+	cr := getCR(t, ns, "run")
+	cr.Spec.Load.BaseRPS = 250
+	if err := k8sClient.Update(context.Background(), cr); err != nil {
+		t.Fatalf("edit spec: %v", err)
+	}
+
+	second := driveOneRun(t, r, ns, "run")
+	if len(second.Status.History) != 2 {
+		t.Errorf("history = %d entries, want 2 (the edit should have re-run it)", len(second.Status.History))
+	}
+	if second.Status.ObservedGeneration != second.Generation {
+		t.Errorf("observedGeneration = %d, want %d", second.Status.ObservedGeneration, second.Generation)
+	}
+	if reasons := drainEventReasons(t, r); !slices.Contains(reasons, EventReasonSpecChanged) {
+		t.Errorf("events = %v, want %s", reasons, EventReasonSpecChanged)
+	}
+}
+
+// TestIntegration_SpecChange_StatusWritesDoNotLoop guards the obvious
+// hazard: status updates must not bump metadata.generation, or a terminal
+// CR would restart itself forever.
+func TestIntegration_SpecChange_StatusWritesDoNotLoop(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	first := driveOneRun(t, r, ns, "run")
+	gen := first.Generation
+
+	for range 10 {
+		reconcileCR(t, r, ns, "run")
+	}
+
+	got := getCR(t, ns, "run")
+	if len(got.Status.History) != 1 {
+		t.Errorf("history = %d entries after 10 reconciles, want 1 (no self-restart loop)", len(got.Status.History))
+	}
+	if got.Generation != gen {
+		t.Errorf("generation moved from %d to %d without a spec edit", gen, got.Generation)
+	}
+}
+
+// TestIntegration_Suspend_OutranksASpecEdit pins the ordering ENG-153
+// nearly got wrong: setting spec.suspend is itself a spec edit, so a naive
+// drift check makes the act of suspending start a run.
+func TestIntegration_Suspend_OutranksASpecEdit(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := passingReconciler(t)
+	advance := advanceClock(r)
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Schedule = "@every 1s"
+	}))
+
+	driveOneRun(t, r, ns, "run")
+
+	cr := getCR(t, ns, "run")
+	cr.Spec.Suspend = true
+	cr.Spec.Load.BaseRPS = 250 // suspend must win even alongside a real edit
+	if err := k8sClient.Update(context.Background(), cr); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	advance(time.Minute)
+
+	for range 5 {
+		reconcileCR(t, r, ns, "run")
+	}
+
+	got := getCR(t, ns, "run")
+	if len(got.Status.History) != 1 {
+		t.Errorf("history = %d entries, want 1 (suspend must outrank the edit)", len(got.Status.History))
+	}
+	if got.Status.ObservedGeneration != got.Generation {
+		t.Errorf("observedGeneration = %d, want %d so unsuspending is not a replayed drift",
+			got.Status.ObservedGeneration, got.Generation)
 	}
 }
 

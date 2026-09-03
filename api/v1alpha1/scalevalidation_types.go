@@ -237,10 +237,12 @@ type ScaleValidationSpec struct {
 	// +optional
 	Schedule string `json:"schedule,omitempty"`
 
-	// Suspend stops future scheduled runs. A run already in flight is
-	// left alone to finish, and the last verdict stays on status, so
-	// suspending is safe mid-run and reversible. Ignored when schedule
-	// is empty.
+	// Suspend stops future runs, both scheduled ones and the run a spec
+	// edit would otherwise trigger. Setting it is itself a spec edit, so
+	// it has to outrank that, or suspending would start the very run it
+	// is meant to prevent. A run already in flight is left alone to
+	// finish, and the last verdict stays on status, so suspending is safe
+	// mid-run and reversible.
 	// +optional
 	// +kubebuilder:default=false
 	Suspend bool `json:"suspend,omitempty"`
@@ -335,6 +337,14 @@ type ScaleValidationStatus struct {
 	// `kubectl get` never advertises a run that will not happen.
 	// +optional
 	NextRunTime *metav1.Time `json:"nextRunTime,omitempty"`
+
+	// ObservedGeneration is the metadata.generation the last terminal
+	// result was produced from. When it lags metadata.generation the spec
+	// has been edited since, and the controller starts a fresh run rather
+	// than leaving a result that describes a spec the object no longer
+	// carries.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Conditions follow the standard Kubernetes conditions pattern.
 	// +optional
