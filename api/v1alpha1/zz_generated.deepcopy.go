@@ -309,6 +309,10 @@ func (in *ScaleValidationStatus) DeepCopyInto(out *ScaleValidationStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.NextRunTime != nil {
+		in, out := &in.NextRunTime, &out.NextRunTime
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))

@@ -9,7 +9,14 @@ This is a statement of direction, not a promise of dates. Items move when eviden
 - **Day-two docs**: task guides (gRPC validation, Envoy Gateway, CI gating) and a troubleshooting page.
 - **Visual polish**: run-lifecycle sequence diagram, README hero, reproducible demo recording.
 - **Run history**: the last ten terminal verdicts are kept in `status.history`, so trend is
-  visible from `kubectl get -o json` without a metrics stack.
+  visible from `kubectl get -o json` without a metrics stack. A one-shot validation fills one
+  entry; `spec.schedule` (below) is what accumulates the rest.
+
+## Next (unreleased)
+
+- **Recurring validation**: `spec.schedule` re-runs a validation on a cron expression and
+  `spec.suspend` pauses it, so `status.history` and the run metrics carry a trend rather than
+  a single data point. Runs never overlap.
 
 ## API graduation: v1alpha1 to v1beta1
 

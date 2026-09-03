@@ -38,10 +38,39 @@ spec:
     injectPodDeletion: true
     minReplicasForChaos: 2
     triggerDelay: 30s
+
+  schedule: "0 2 * * *"        # optional; omit to run exactly once
+  suspend: false               # pause future scheduled runs
 ```
 
 Every shape below also exists as a runnable manifest in
 [`config/samples/`](https://github.com/ethan-kane-ops/scale-sentry/tree/main/config/samples).
+
+## Scheduling
+
+A `ScaleValidation` runs **once** by default: it reaches `Succeeded`, `Failed` or `Error` and stops. That is the right shape for a CI gate.
+
+Set `spec.schedule` to re-run it instead. Each verdict is appended to `status.history` (newest first, capped at ten), which is what makes a trend visible from `kubectl get -o json` alone, and what gives `scale_sentry_runs_total` more than a single data point per CR.
+
+```yaml
+spec:
+  schedule: "0 2 * * *"   # nightly at 02:00
+```
+
+Standard five-field cron, plus the usual descriptors: `@hourly`, `@daily`, `@weekly`, `@monthly`, and `@every 90m`. An unparseable expression is rejected on the first reconcile with a `ScheduleInvalid` diagnostic, before any load is generated.
+
+**Runs never overlap.** The schedule is only evaluated once a run has reached a terminal phase, so a run that overruns its own interval delays the next one rather than racing it. Two load generators against one target would measure nothing useful.
+
+**Pausing.** `spec.suspend: true` stops future runs. A run already in flight is left alone to finish, the last verdict stays on `status`, and `status.nextRunTime` is cleared so `kubectl get` does not advertise a run that will not happen. Set it back to `false` to resume.
+
+```console
+$ kubectl get scalevalidation
+NAME       PHASE       SLA    TRAFFIC   SCHEDULE      NEXT RUN   AGE
+nightly    Succeeded   Pass   Pass      0 2 * * *     7h         3d
+canary     Succeeded   Pass   Pass                               2m
+```
+
+Each run resets its own status: diagnostics, verdicts and request counters come from that run alone. `status.history` is the only thing carried across.
 
 ## Targeting modes
 
