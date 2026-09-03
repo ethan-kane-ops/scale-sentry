@@ -36,6 +36,7 @@ type controllerOpts struct {
 	loadgenImage           string
 	observerImage          string
 	observerServiceAccount string
+	imagePullSecrets       []string
 	devLogging             bool
 }
 
@@ -56,6 +57,8 @@ func newControllerCmd() *cobra.Command {
 	f.StringVar(&o.loadgenImage, "loadgen-image", defaultLoadgenImage, "container image for the loadgen container")
 	f.StringVar(&o.observerImage, "observer-image", defaultObserverImage, "container image for the observer sidecar")
 	f.StringVar(&o.observerServiceAccount, "observer-service-account", defaultObserverServiceAccnt, "ServiceAccount the loadgen Job pod runs as")
+	f.StringSliceVar(&o.imagePullSecrets, "image-pull-secret", nil,
+		"imagePullSecret name to set on loadgen/observer Job pods; repeatable, needed when the images live in a private registry")
 	f.BoolVar(&o.devLogging, "dev-logging", false, "use development (human-readable) log encoding")
 	return cmd
 }
@@ -93,6 +96,7 @@ func runController(o controllerOpts) error {
 		LoadgenImage:           o.loadgenImage,
 		ObserverImage:          o.observerImage,
 		ObserverServiceAccount: o.observerServiceAccount,
+		ImagePullSecrets:       o.imagePullSecrets,
 		// GetEventRecorderFor is marked deprecated by controller-runtime in
 		// favour of the new events.v1 API, but the new API still requires
 		// extra per-event fields (action, related object) that don't fit

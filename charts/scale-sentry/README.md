@@ -36,16 +36,23 @@ for verification steps.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| controller.affinity | object | `{}` | Affinity rules for the controller. Note replicaCount > 1 already renders topologySpreadConstraints; set this only for placement beyond that. |
 | controller.devLogging | bool | `false` | Verbose development logging |
 | controller.image.pullPolicy | string | `"IfNotPresent"` | Controller image pull policy |
 | controller.image.repository | string | `"ghcr.io/ethan-kane-ops/scale-sentry"` | Controller image repository |
 | controller.image.tag | string | `""` | Controller image tag; empty falls back to .Chart.AppVersion so releases only bump Chart.yaml |
+| controller.imagePullSecrets | list | `[]` | imagePullSecrets for the controller Deployment AND the loadgen/observer Job pods it creates. Job pods are separate objects pulling the same images, so a private registry needs this set here rather than on the ServiceAccount alone. |
 | controller.leaderElect | bool | `true` | Enable leader election so multi-replica deployments are safe. A standby takes over within the lease-renew window (~15s) if the leader dies. |
+| controller.nodeSelector | object | `{}` | Node labels the controller must be scheduled onto |
+| controller.podAnnotations | object | `{}` | Extra annotations on the controller pod (scrape config, mesh injection opt-out, cost allocation) |
 | controller.podDisruptionBudget | object | `{"minAvailable":1}` | PodDisruptionBudget, rendered only when replicaCount > 1 |
+| controller.podLabels | object | `{}` | Extra labels on the controller pod |
 | controller.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod-level securityContext for the controller. Default satisfies PodSecurityAdmission "Restricted" (runAsNonRoot, seccomp RuntimeDefault). |
+| controller.priorityClassName | string | `""` | PriorityClass for the controller. Worth setting: a controller evicted under node pressure stops reconciling silently. |
 | controller.replicaCount | int | `1` | Number of controller replicas; >1 enables HA (renders a PodDisruptionBudget + topology spread) |
 | controller.resources | object | `{"limits":{"memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Controller resource requests/limits. No CPU limit by design (let the kernel scheduler arbitrate); memory is the only hard cap. |
 | controller.securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Container-level securityContext for the controller. Default satisfies PodSecurityAdmission "Restricted" (drop ALL caps, no privilege escalation, read-only root fs). |
+| controller.tolerations | list | `[]` | Taints the controller tolerates |
 | controller.topologySpreadConstraints | list | `[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway"}]` | Topology spread constraints, rendered only when replicaCount > 1. Default: prefer spreading replicas across zones. |
 | fullnameOverride | string | `""` | Override the full release name |
 | loadgenImage | string | `""` | Loadgen Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion. |
