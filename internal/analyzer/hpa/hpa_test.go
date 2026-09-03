@@ -1,6 +1,7 @@
 package hpa
 
 import (
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"testing"
 	"time"
 
@@ -130,7 +131,7 @@ func TestReport_Diagnostics_ScalingLimitedAndUnableToScale(t *testing.T) {
 	w.Record(Snapshot{At: start.Add(10 * time.Second), CurrentReplicas: 3, DesiredReplicas: 10, Conditions: conds})
 
 	alerts := w.Report().Diagnostics()
-	seen := map[string]string{}
+	seen := map[string]v1beta1.Severity{}
 	for _, a := range alerts {
 		seen[a.Type] = a.Severity
 	}

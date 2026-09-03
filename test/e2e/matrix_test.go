@@ -17,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 
 // runValidationFixture submits the CR, waits for the terminal phase, and
 // asserts the full verdict (Succeeded / SLA Pass / traffic Pass).
-func runValidationFixture(t *testing.T, c client.Client, ctx context.Context, cr *v1alpha1.ScaleValidation) {
+func runValidationFixture(t *testing.T, c client.Client, ctx context.Context, cr *v1beta1.ScaleValidation) {
 	t.Helper()
 	mustCreate(t, c, ctx, cr)
 	t.Cleanup(func() { _ = c.Delete(context.Background(), cr) })
@@ -143,10 +143,10 @@ func TestE2E_DisruptionDrainDiagnostics(t *testing.T) {
 		t.Fatalf("target not ready: %v", err)
 	}
 
-	cr := &v1alpha1.ScaleValidation{
+	cr := &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{Name: "disruption", Namespace: ns.Name},
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{
+		Spec: v1beta1.ScaleValidationSpec{
+			TargetRef: v1beta1.CrossVersionObjectReference{
 				APIVersion: "apps/v1", Kind: "Deployment", Name: "target",
 			},
 			// 90s window (scaled by E2E_SLA_MULTIPLIER on CI, see
@@ -154,12 +154,12 @@ func TestE2E_DisruptionDrainDiagnostics(t *testing.T) {
 			// minute of measured traffic to correlate against the
 			// endpoint removal.
 			SLA:    metav1.Duration{Duration: scaledSLA(90 * time.Second)},
-			Target: v1alpha1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
+			Target: v1beta1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
 			// hpa-example costs ~50ms CPU per request; 20 RPS across two
 			// replicas keeps the node comfortable while giving the drain
 			// window enough in-flight traffic to catch dropped requests.
-			Load: v1alpha1.LoadConfig{BaseRPS: 20, ConcurrencyFactor: 1},
-			Disruption: &v1alpha1.DisruptionConfig{
+			Load: v1beta1.LoadConfig{BaseRPS: 20, ConcurrencyFactor: 1},
+			Disruption: &v1beta1.DisruptionConfig{
 				InjectPodDeletion:   true,
 				MinReplicasForChaos: 2,
 				TriggerDelay:        &metav1.Duration{Duration: 30 * time.Second},

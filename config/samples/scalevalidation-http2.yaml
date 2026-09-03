@@ -1,4 +1,4 @@
-apiVersion: validation.scale-sentry.ek.co/v1alpha1
+apiVersion: validation.scale-sentry.ek.co/v1beta1
 kind: ScaleValidation
 metadata:
   name: billing-http2-validation

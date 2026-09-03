@@ -49,7 +49,7 @@ Run `just --list` for the full set. The most-used recipes:
 | `just generate`      | regenerate `zz_generated.deepcopy.go`                  |
 | `just manifests`     | regenerate CRD + RBAC YAML from kubebuilder markers    |
 
-Run `just generate && just manifests` after any change to `api/v1alpha1/*_types.go`. Generated files are committed; CI fails on drift.
+Run `just generate && just manifests` after any change to `api/v1beta1/*_types.go`. Generated files are committed; CI fails on drift.
 
 ---
 
@@ -69,8 +69,8 @@ Run `just generate && just manifests` after any change to `api/v1alpha1/*_types.
 
 ### CRD types
 
-- Any change to `api/v1alpha1/*_types.go` requires `just generate && just manifests`.
-- `FailureRate` and any other `float64` field require `crd:allowDangerousTypes=true` on the controller-gen invocation (already wired in the justfile).
+- Any change to `api/v1beta1/*_types.go` requires `just generate && just manifests`.
+- No floats in the API. The Kubernetes API convention rejects them because they do not round-trip reliably across clients, and controller-gen only accepts one behind `crd:allowDangerousTypes`, which this project does not set. Ratios are integers: `status.failureRateBasisPoints` is in basis points, 1 bp = 0.01%.
 
 ---
 

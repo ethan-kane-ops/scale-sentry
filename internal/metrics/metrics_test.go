@@ -4,9 +4,9 @@ import "testing"
 
 func TestVerdictFromStatus(t *testing.T) {
 	tests := []struct {
-		name             string
-		sla, trafficInt  string
-		want             string
+		name            string
+		sla, trafficInt string
+		want            string
 	}{
 		{"both pass", "Pass", "Pass", VerdictPass},
 		{"sla fail wins", "Fail", "Pass", VerdictFail},

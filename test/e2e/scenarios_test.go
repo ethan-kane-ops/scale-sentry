@@ -17,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 const (
@@ -47,16 +47,16 @@ func TestE2E_FinalizerCleansUpJobs(t *testing.T) {
 		t.Fatalf("target not ready: %v", err)
 	}
 
-	cr := &v1alpha1.ScaleValidation{
+	cr := &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{Name: "finalizer", Namespace: ns.Name},
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{
+		Spec: v1beta1.ScaleValidationSpec{
+			TargetRef: v1beta1.CrossVersionObjectReference{
 				APIVersion: "apps/v1", Kind: "Deployment", Name: "target",
 			},
 			// Long SLA keeps the run in-flight so the delete lands mid-run.
 			SLA:    metav1.Duration{Duration: 5 * time.Minute},
-			Target: v1alpha1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
-			Load:   v1alpha1.LoadConfig{BaseRPS: 5, ConcurrencyFactor: 1},
+			Target: v1beta1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
+			Load:   v1beta1.LoadConfig{BaseRPS: 5, ConcurrencyFactor: 1},
 		},
 	}
 	mustCreate(t, c, ctx, cr)
@@ -79,7 +79,7 @@ func TestE2E_FinalizerCleansUpJobs(t *testing.T) {
 	}
 
 	if err := waitFor(ctx, cleanupGoneAfter, func() (bool, error) {
-		err := c.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: cr.Name}, &v1alpha1.ScaleValidation{})
+		err := c.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: cr.Name}, &v1beta1.ScaleValidation{})
 		if apierrors.IsNotFound(err) {
 			return true, nil
 		}
@@ -122,7 +122,7 @@ func TestE2E_AnnotationBridgeCreatesShadowCR(t *testing.T) {
 	mustCreate(t, c, ctx, targetService(ns.Name, labels))
 
 	shadowKey := types.NamespacedName{Namespace: ns.Name, Name: deploy.Name + "-shadow"}
-	var shadow v1alpha1.ScaleValidation
+	var shadow v1beta1.ScaleValidation
 	if err := waitFor(ctx, shadowAfter, func() (bool, error) {
 		err := c.Get(ctx, shadowKey, &shadow)
 		if apierrors.IsNotFound(err) {

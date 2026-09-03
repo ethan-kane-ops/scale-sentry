@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -27,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/metrics"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
 )
@@ -41,17 +42,16 @@ const (
 	targetReadyWaitTimeout  = 5 * time.Minute
 )
 
-// Lifecycle phases written to status.phase. Pending and Running are
-// transient; Succeeded, Failed, and Error are terminal. Terminating is the
-// transient phase while the finalizer drains child resources after the CR
-// has a deletionTimestamp.
+// Lifecycle phases are defined on the API package: they are part of the
+// contract a user reads off status.phase, not an internal detail of the
+// reconciler. Aliased here so call sites stay short.
 const (
-	PhasePending     = "Pending"
-	PhaseRunning     = "Running"
-	PhaseSucceeded   = "Succeeded"
-	PhaseFailed      = "Failed"
-	PhaseError       = "Error"
-	PhaseTerminating = "Terminating"
+	PhasePending     = v1beta1.PhasePending
+	PhaseRunning     = v1beta1.PhaseRunning
+	PhaseSucceeded   = v1beta1.PhaseSucceeded
+	PhaseFailed      = v1beta1.PhaseFailed
+	PhaseError       = v1beta1.PhaseError
+	PhaseTerminating = v1beta1.PhaseTerminating
 )
 
 // scaleValidationFinalizer guards the CR from immediate deletion so the
@@ -133,7 +133,7 @@ func (r *ScaleValidationReconciler) now() time.Time {
 }
 
 // eventf emits an Event against cr, no-oping if Recorder is unset.
-func (r *ScaleValidationReconciler) eventf(cr *v1alpha1.ScaleValidation, eventType, reason, format string, args ...any) {
+func (r *ScaleValidationReconciler) eventf(cr *v1beta1.ScaleValidation, eventType, reason, format string, args ...any) {
 	if r.Recorder == nil {
 		return
 	}
@@ -159,7 +159,7 @@ func (r *ScaleValidationReconciler) eventf(cr *v1alpha1.ScaleValidation, eventTy
 func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var cr v1alpha1.ScaleValidation
+	var cr v1beta1.ScaleValidation
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -244,7 +244,7 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // finishRun collects the observer sidecar's Report from a completed Job,
 // writes the measured results to status, and sets the terminal phase:
 // Succeeded, or Failed when the SLA or traffic-integrity verdict failed.
-func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	pod, err := r.findJobPod(ctx, cr)
@@ -305,7 +305,7 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 // Succeeded (Normal VerdictPass), Warning VerdictFail otherwise. The
 // message embeds the top diagnostic so `kubectl describe` shows the
 // "why" without a second roundtrip.
-func emitVerdictEvent(r *ScaleValidationReconciler, cr *v1alpha1.ScaleValidation, report observer.Report) {
+func emitVerdictEvent(r *ScaleValidationReconciler, cr *v1beta1.ScaleValidation, report observer.Report) {
 	if cr.Status.Phase == PhaseSucceeded {
 		r.eventf(cr, corev1.EventTypeNormal, EventReasonVerdictPass,
 			"SLA=%s traffic=%s requests=%d failed=%d",
@@ -321,11 +321,11 @@ func emitVerdictEvent(r *ScaleValidationReconciler, cr *v1alpha1.ScaleValidation
 // topDiagnostic returns a short string describing the highest-severity
 // diagnostic in diags, suitable for embedding in an Event message. Falls
 // back to "<none>" when the run failed but no diagnostic was attached.
-func topDiagnostic(diags []v1alpha1.DiagnosticAlert) string {
+func topDiagnostic(diags []v1beta1.DiagnosticAlert) string {
 	if len(diags) == 0 {
 		return "<none>"
 	}
-	rank := map[string]int{"Critical": 3, "Warning": 2, "Info": 1}
+	rank := map[v1beta1.Severity]int{v1beta1.SeverityCritical: 3, v1beta1.SeverityWarning: 2, v1beta1.SeverityInfo: 1}
 	best := diags[0]
 	for _, d := range diags[1:] {
 		if rank[d.Severity] > rank[best.Severity] {
@@ -338,9 +338,9 @@ func topDiagnostic(diags []v1alpha1.DiagnosticAlert) string {
 // recordRunMetrics emits the per-run Prometheus observations once the run
 // has been written back to status. Safe to call with a nil ScaleUpDuration
 // (the HPA react histogram is then skipped, not observed as zero).
-func recordRunMetrics(cr *v1alpha1.ScaleValidation, report observer.Report) {
+func recordRunMetrics(cr *v1beta1.ScaleValidation, report observer.Report) {
 	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name,
-		metrics.VerdictFromStatus(report.SLAStatus, report.TrafficIntegrity)).Inc()
+		metrics.VerdictFromStatus(string(report.SLAStatus), string(report.TrafficIntegrity))).Inc()
 	if cr.Status.LastRunTime != nil {
 		metrics.RunDurationSeconds.WithLabelValues(cr.Namespace, cr.Name).
 			Observe(time.Since(cr.Status.LastRunTime.Time).Seconds())
@@ -350,12 +350,12 @@ func recordRunMetrics(cr *v1alpha1.ScaleValidation, report observer.Report) {
 			Observe(report.ScaleUpDuration.Seconds())
 	}
 	for _, d := range report.Diagnostics {
-		metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, d.Type, d.Severity).Inc()
+		metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, d.Type, string(d.Severity)).Inc()
 	}
 }
 
 // findJobPod returns the pod created by the CR's loadgen Job, or nil.
-func (r *ScaleValidationReconciler) findJobPod(ctx context.Context, cr *v1alpha1.ScaleValidation) (*corev1.Pod, error) {
+func (r *ScaleValidationReconciler) findJobPod(ctx context.Context, cr *v1beta1.ScaleValidation) (*corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods,
 		client.InNamespace(cr.Namespace),
@@ -391,14 +391,29 @@ func (r *ScaleValidationReconciler) observerLog(ctx context.Context, pod *corev1
 }
 
 // applyReport copies the observer's measured results into the CR status.
-func applyReport(cr *v1alpha1.ScaleValidation, report observer.Report) {
+func applyReport(cr *v1beta1.ScaleValidation, report observer.Report) {
 	cr.Status.Diagnostics = report.Diagnostics
 	cr.Status.ScaleUpDuration = report.ScaleUpDuration
 	cr.Status.SLAStatus = report.SLAStatus
 	cr.Status.TrafficIntegrity = report.TrafficIntegrity
 	cr.Status.TotalRequests = report.TotalRequests
 	cr.Status.FailedRequests = report.FailedRequests
-	cr.Status.FailureRate = report.FailureRate
+	cr.Status.FailureRateBasisPoints = failureRateBasisPoints(report.FailureRate)
+}
+
+// failureRateBasisPoints converts the observer's float ratio into the
+// integer basis points the API carries. Rounded rather than truncated, so
+// a real but tiny failure rate does not read as a clean zero, and clamped
+// because a malformed report should not wrap the field negative.
+func failureRateBasisPoints(rate float64) int32 {
+	if rate <= 0 {
+		return 0
+	}
+	bp := math.Round(rate * v1beta1.FailureRateScale)
+	if bp > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(bp)
 }
 
 // appendRunHistory records the just-finalized run (cr.Status.Phase and the
@@ -406,17 +421,17 @@ func applyReport(cr *v1alpha1.ScaleValidation, report observer.Report) {
 // trims to RunHistoryLimit. Must run after applyReport and the terminal
 // Phase assignment, before the status write, so both land in the same
 // Status().Update call.
-func appendRunHistory(cr *v1alpha1.ScaleValidation) {
-	entry := v1alpha1.RunSummary{
-		FinishedAt:       metav1.Now(),
-		Phase:            cr.Status.Phase,
-		SLAStatus:        cr.Status.SLAStatus,
-		TrafficIntegrity: cr.Status.TrafficIntegrity,
-		FailureRate:      cr.Status.FailureRate,
+func appendRunHistory(cr *v1beta1.ScaleValidation) {
+	entry := v1beta1.RunSummary{
+		FinishedAt:             metav1.Now(),
+		Phase:                  cr.Status.Phase,
+		SLAStatus:              cr.Status.SLAStatus,
+		TrafficIntegrity:       cr.Status.TrafficIntegrity,
+		FailureRateBasisPoints: cr.Status.FailureRateBasisPoints,
 	}
-	cr.Status.History = append([]v1alpha1.RunSummary{entry}, cr.Status.History...)
-	if len(cr.Status.History) > v1alpha1.RunHistoryLimit {
-		cr.Status.History = cr.Status.History[:v1alpha1.RunHistoryLimit]
+	cr.Status.History = append([]v1beta1.RunSummary{entry}, cr.Status.History...)
+	if len(cr.Status.History) > v1beta1.RunHistoryLimit {
+		cr.Status.History = cr.Status.History[:v1beta1.RunHistoryLimit]
 	}
 }
 
@@ -433,7 +448,7 @@ func appendRunHistory(cr *v1alpha1.ScaleValidation) {
 // returned so the timeout diagnostic can distinguish "workload missing"
 // (0 ready) from "workload exists but none healthy" (also 0 ready, but the
 // surrounding events will explain why).
-func (r *ScaleValidationReconciler) targetReady(ctx context.Context, cr *v1alpha1.ScaleValidation) (bool, int32, error) {
+func (r *ScaleValidationReconciler) targetReady(ctx context.Context, cr *v1beta1.ScaleValidation) (bool, int32, error) {
 	return r.targetPodsReady(ctx, cr)
 }
 
@@ -443,10 +458,10 @@ func (r *ScaleValidationReconciler) targetReady(ctx context.Context, cr *v1alpha
 // workload with no usable scale subresource. Requeueing would never
 // succeed, so the run is failed immediately with the kind named in the
 // message rather than left to time out against the readiness gate.
-func (r *ScaleValidationReconciler) failTargetUnresolvable(ctx context.Context, cr *v1alpha1.ScaleValidation, cause error) error {
+func (r *ScaleValidationReconciler) failTargetUnresolvable(ctx context.Context, cr *v1beta1.ScaleValidation, cause error) error {
 	ref := cr.Spec.TargetRef
 	msg := fmt.Sprintf("cannot resolve targetRef %s/%s %s: %v", ref.APIVersion, ref.Kind, ref.Name, cause)
-	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{
+	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1beta1.DiagnosticAlert{
 		Type:     "TargetUnsupported",
 		Severity: "Critical",
 		Message:  msg,
@@ -464,8 +479,8 @@ func (r *ScaleValidationReconciler) failTargetUnresolvable(ctx context.Context, 
 // the CR to PhaseError. Called when the target Deployment never reaches
 // readyReplicas>=1 within the wait window, the loadgen run cannot proceed
 // because there is nothing to send traffic to.
-func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *v1alpha1.ScaleValidation, readyReplicas int32, timeout time.Duration) (ctrl.Result, error) {
-	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{
+func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *v1beta1.ScaleValidation, readyReplicas int32, timeout time.Duration) (ctrl.Result, error) {
+	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1beta1.DiagnosticAlert{
 		Type:     "TargetNotReady",
 		Severity: "Critical",
 		Message: fmt.Sprintf("target deployment %s/%s had %d ready replicas after waiting %s",
@@ -483,7 +498,7 @@ func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *
 }
 
 // spawnJob creates the loadgen Job for cr and moves it to Running.
-func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	url, err := r.resolveTargetURL(ctx, cr)
@@ -532,7 +547,7 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 // removes the finalizer so the CR is garbage-collected. Safe to re-run
 // against a CR whose children were already gone before the user issued
 // the delete.
-func (r *ScaleValidationReconciler) finalize(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) finalize(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	if !controllerutil.ContainsFinalizer(cr, scaleValidationFinalizer) {
@@ -582,7 +597,7 @@ func (r *ScaleValidationReconciler) finalize(ctx context.Context, cr *v1alpha1.S
 // has been resolved to a terminal Error phase (the caller must stop), or
 // terminal=false with a nil error when no CA bundle is configured or the
 // configured one is valid.
-func (r *ScaleValidationReconciler) validateTLSCABundle(ctx context.Context, cr *v1alpha1.ScaleValidation) (bool, error) {
+func (r *ScaleValidationReconciler) validateTLSCABundle(ctx context.Context, cr *v1beta1.ScaleValidation) (bool, error) {
 	ref := caBundleRef(cr)
 	if ref == nil {
 		return false, nil
@@ -607,8 +622,8 @@ func (r *ScaleValidationReconciler) validateTLSCABundle(ctx context.Context, cr 
 
 // failTLSCABundle appends a Critical TLSCABundleMissing diagnostic and
 // transitions the CR to PhaseError.
-func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1alpha1.ScaleValidation, msg, rec string) error {
-	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{
+func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1beta1.ScaleValidation, msg, rec string) error {
+	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1beta1.DiagnosticAlert{
 		Type:           "TLSCABundleMissing",
 		Severity:       "Critical",
 		Message:        msg,
@@ -622,7 +637,7 @@ func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1a
 }
 
 // setPhase persists phase to status.phase via the status subresource.
-func (r *ScaleValidationReconciler) setPhase(ctx context.Context, cr *v1alpha1.ScaleValidation, phase string) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) setPhase(ctx context.Context, cr *v1beta1.ScaleValidation, phase v1beta1.Phase) (ctrl.Result, error) {
 	cr.Status.Phase = phase
 	if err := r.Status().Update(ctx, cr); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update status to %s: %w", phase, err)
@@ -644,7 +659,7 @@ func jobConditionTrue(job *batchv1.Job, t batchv1.JobConditionType) bool {
 // Job condition transition re-triggers reconciliation of its owner CR.
 func (r *ScaleValidationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.ScaleValidation{}).
+		For(&v1beta1.ScaleValidation{}).
 		Owns(&batchv1.Job{}).
 		Named("scalevalidation").
 		Complete(r)

@@ -18,7 +18,7 @@ kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/m
 ## Run the validation
 
 ```yaml
-apiVersion: validation.scale-sentry.ek.co/v1alpha1
+apiVersion: validation.scale-sentry.ek.co/v1beta1
 kind: ScaleValidation
 metadata:
   name: grpc-canary
@@ -57,7 +57,7 @@ kubectl -n scale-sentry-e2e describe scalevalidation grpc-canary   # lifecycle E
 
 Things worth checking beyond the verdict band:
 
-- `status.failureRate` under drain or disruption: gRPC failures here are stream resets (`UNAVAILABLE`), the signature of a pod terminated without connection draining.
+- `status.failureRateBasisPoints` under drain or disruption: gRPC failures here are stream resets (`UNAVAILABLE`), the signature of a pod terminated without connection draining.
 - `status.diagnostics` for `MetricsLikelySkewed`: if leakage or drain findings fired, the latency numbers include error responses and should be read accordingly.
 
 A complete runnable example lives at [`config/e2e/validations/grpc-clusterip.yaml`](https://github.com/ethan-kane-ops/scale-sentry/blob/main/config/e2e/validations/grpc-clusterip.yaml), and the gRPC wire-level details are in [Protocols](../protocols.md).

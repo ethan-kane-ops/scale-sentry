@@ -6,7 +6,7 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
-      - 'api/v1alpha1/**'
+      - 'api/v1beta1/**'
       - '.crd-ref-docs.yaml'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p docs/reference
           go run github.com/elastic/crd-ref-docs@v0.3.0 \
-            --source-path=./api/v1alpha1 \
+            --source-path=./api/v1beta1 \
             --config=.crd-ref-docs.yaml \
             --renderer=markdown \
             --output-path=docs/reference/api.md

@@ -15,7 +15,7 @@ import (
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // Snapshot is the controller's view of an HPA at a single point in time.
@@ -142,10 +142,10 @@ func (w *Watcher) Report() Report {
 //   - HPA did not react to load → Warning "HPANoReaction"
 //   - HPA reported ScalingLimited=True in the latest snapshot → Warning "HPAScalingLimited"
 //   - HPA reported AbleToScale=False in the latest snapshot → Critical "HPAUnableToScale"
-func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
-	var alerts []v1alpha1.DiagnosticAlert
+func (r Report) Diagnostics() []v1beta1.DiagnosticAlert {
+	var alerts []v1beta1.DiagnosticAlert
 	if r.SLABreached {
-		alerts = append(alerts, v1alpha1.DiagnosticAlert{
+		alerts = append(alerts, v1beta1.DiagnosticAlert{
 			Type:     "HPAScaleLatency",
 			Severity: "Critical",
 			Message: fmt.Sprintf(
@@ -157,7 +157,7 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 		})
 	}
 	if !r.Reacted && r.DesiredReplicas > r.StartReplicas {
-		alerts = append(alerts, v1alpha1.DiagnosticAlert{
+		alerts = append(alerts, v1beta1.DiagnosticAlert{
 			Type:     "HPANoReaction",
 			Severity: "Warning",
 			Message: fmt.Sprintf(
@@ -170,14 +170,14 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 	for _, c := range r.LatestConditions {
 		switch {
 		case c.Type == autoscalingv2.ScalingLimited && c.Status == "True":
-			alerts = append(alerts, v1alpha1.DiagnosticAlert{
+			alerts = append(alerts, v1beta1.DiagnosticAlert{
 				Type:           "HPAScalingLimited",
 				Severity:       "Warning",
 				Message:        fmt.Sprintf("HPA ScalingLimited=True: %s", c.Message),
 				Recommendation: "raise the HPA maxReplicas, or address the upstream cap reported by HPA",
 			})
 		case c.Type == autoscalingv2.AbleToScale && c.Status == "False":
-			alerts = append(alerts, v1alpha1.DiagnosticAlert{
+			alerts = append(alerts, v1beta1.DiagnosticAlert{
 				Type:           "HPAUnableToScale",
 				Severity:       "Critical",
 				Message:        fmt.Sprintf("HPA AbleToScale=False: %s", c.Message),

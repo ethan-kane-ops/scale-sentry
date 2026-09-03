@@ -17,7 +17,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // Annotations on a Deployment that opt it into an auto-generated
@@ -62,7 +62,7 @@ func (r *DeploymentShadowReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	name := deploy.Name + "-shadow"
 	key := types.NamespacedName{Namespace: deploy.Namespace, Name: name}
-	err := r.Get(ctx, key, &v1alpha1.ScaleValidation{})
+	err := r.Get(ctx, key, &v1beta1.ScaleValidation{})
 	switch {
 	case err == nil:
 		return ctrl.Result{}, nil
@@ -89,7 +89,7 @@ func (r *DeploymentShadowReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 // shadowScaleValidation builds the CR for deploy, reading optional tuning
 // annotations and falling back to the shadowDefault* values.
-func shadowScaleValidation(deploy *appsv1.Deployment, name string) (*v1alpha1.ScaleValidation, error) {
+func shadowScaleValidation(deploy *appsv1.Deployment, name string) (*v1beta1.ScaleValidation, error) {
 	port := shadowDefaultPort
 	if v, ok := deploy.Annotations[shadowPortAnnotation]; ok {
 		n, err := strconv.ParseInt(v, 10, 32)
@@ -117,21 +117,21 @@ func shadowScaleValidation(deploy *appsv1.Deployment, name string) (*v1alpha1.Sc
 		baseRPS = int32(n)
 	}
 
-	return &v1alpha1.ScaleValidation{
+	return &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: deploy.Namespace},
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{
+		Spec: v1beta1.ScaleValidationSpec{
+			TargetRef: v1beta1.CrossVersionObjectReference{
 				APIVersion: "apps/v1",
 				Kind:       "Deployment",
 				Name:       deploy.Name,
 			},
 			SLA: metav1.Duration{Duration: sla},
-			Target: v1alpha1.TargetConfig{
+			Target: v1beta1.TargetConfig{
 				Mode:        "ServiceDefault",
 				Port:        port,
 				NetworkPath: "ClusterIP",
 			},
-			Load: v1alpha1.LoadConfig{
+			Load: v1beta1.LoadConfig{
 				BaseRPS:           baseRPS,
 				ConcurrencyFactor: shadowDefaultConcurrencyFactor,
 			},

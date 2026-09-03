@@ -7,7 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 func TestParseSchedule(t *testing.T) {
@@ -28,8 +28,8 @@ func TestParseSchedule(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := &v1alpha1.ScaleValidation{
-				Spec: v1alpha1.ScaleValidationSpec{Schedule: tt.schedule},
+			cr := &v1beta1.ScaleValidation{
+				Spec: v1beta1.ScaleValidationSpec{Schedule: tt.schedule},
 			}
 			sched, err := parseSchedule(cr)
 			if tt.wantErr && err == nil {
@@ -49,7 +49,7 @@ func TestLastRunAnchor(t *testing.T) {
 	created := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	ran := time.Date(2026, 9, 3, 4, 30, 0, 0, time.UTC)
 
-	cr := &v1alpha1.ScaleValidation{
+	cr := &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(created)},
 	}
 	if got := lastRunAnchor(cr); !got.Equal(created) {
@@ -70,17 +70,17 @@ func TestLastRunAnchor(t *testing.T) {
 // watcher would return on the previous run's verdict.
 func TestResetForNextRun(t *testing.T) {
 	dur := metav1.Duration{Duration: 42 * time.Second}
-	cr := &v1alpha1.ScaleValidation{
-		Spec: v1alpha1.ScaleValidationSpec{Schedule: "@daily"},
-		Status: v1alpha1.ScaleValidationStatus{
-			Diagnostics:      []v1alpha1.DiagnosticAlert{{Type: "CPUThrottling", Severity: "Warning", Message: "old"}},
-			ScaleUpDuration:  &dur,
-			SLAStatus:        "Fail",
-			TrafficIntegrity: "Pass",
-			TotalRequests:    5000,
-			FailedRequests:   12,
-			FailureRate:      0.0024,
-			History:          []v1alpha1.RunSummary{{Phase: PhaseFailed}, {Phase: PhaseSucceeded}},
+	cr := &v1beta1.ScaleValidation{
+		Spec: v1beta1.ScaleValidationSpec{Schedule: "@daily"},
+		Status: v1beta1.ScaleValidationStatus{
+			Diagnostics:            []v1beta1.DiagnosticAlert{{Type: "CPUThrottling", Severity: "Warning", Message: "old"}},
+			ScaleUpDuration:        &dur,
+			SLAStatus:              "Fail",
+			TrafficIntegrity:       "Pass",
+			TotalRequests:          5000,
+			FailedRequests:         12,
+			FailureRateBasisPoints: 24,
+			History:                []v1beta1.RunSummary{{Phase: PhaseFailed}, {Phase: PhaseSucceeded}},
 		},
 	}
 	markFinished(cr, FinishedReasonVerdictFailed, "previous run")
@@ -99,7 +99,7 @@ func TestResetForNextRun(t *testing.T) {
 	if cr.Status.ScaleUpDuration != nil || cr.Status.SLAStatus != "" || cr.Status.TrafficIntegrity != "" {
 		t.Errorf("verdict fields not cleared: %+v", cr.Status)
 	}
-	if cr.Status.TotalRequests != 0 || cr.Status.FailedRequests != 0 || cr.Status.FailureRate != 0 {
+	if cr.Status.TotalRequests != 0 || cr.Status.FailedRequests != 0 || cr.Status.FailureRateBasisPoints != 0 {
 		t.Errorf("request counters not cleared: %+v", cr.Status)
 	}
 	if cr.Status.NextRunTime != nil {

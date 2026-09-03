@@ -6,13 +6,13 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/loadgen"
 )
 
-func crWithLoad(load v1alpha1.LoadConfig, sla time.Duration) *v1alpha1.ScaleValidation {
-	return &v1alpha1.ScaleValidation{
-		Spec: v1alpha1.ScaleValidationSpec{
+func crWithLoad(load v1beta1.LoadConfig, sla time.Duration) *v1beta1.ScaleValidation {
+	return &v1beta1.ScaleValidation{
+		Spec: v1beta1.ScaleValidationSpec{
 			SLA:  metav1.Duration{Duration: sla},
 			Load: load,
 		},
@@ -20,7 +20,7 @@ func crWithLoad(load v1alpha1.LoadConfig, sla time.Duration) *v1alpha1.ScaleVali
 }
 
 func TestBuildPhases_NoProfileNoWarmupReturnsNil(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{BaseRPS: 100}, time.Minute)
+	cr := crWithLoad(v1beta1.LoadConfig{BaseRPS: 100}, time.Minute)
 	phases, err := buildPhases(cr)
 	if err != nil {
 		t.Fatalf("buildPhases: %v", err)
@@ -31,7 +31,7 @@ func TestBuildPhases_NoProfileNoWarmupReturnsNil(t *testing.T) {
 }
 
 func TestBuildPhases_WarmupPrependsRecordStatsFalsePhase(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS:        100,
 		WarmupDuration: &metav1.Duration{Duration: 10 * time.Second},
 	}, time.Minute)
@@ -54,9 +54,9 @@ func TestBuildPhases_WarmupPrependsRecordStatsFalsePhase(t *testing.T) {
 }
 
 func TestBuildPhases_RampRequiresEndRPS(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 50,
-		Profile: &v1alpha1.LoadProfile{Pattern: "Ramp"},
+		Profile: &v1beta1.LoadProfile{Pattern: "Ramp"},
 	}, time.Minute)
 	if _, err := buildPhases(cr); err == nil {
 		t.Error("expected error when Ramp pattern has no endRps")
@@ -65,9 +65,9 @@ func TestBuildPhases_RampRequiresEndRPS(t *testing.T) {
 
 func TestBuildPhases_RampOK(t *testing.T) {
 	end := int32(200)
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 50,
-		Profile: &v1alpha1.LoadProfile{Pattern: "Ramp", EndRPS: &end},
+		Profile: &v1beta1.LoadProfile{Pattern: "Ramp", EndRPS: &end},
 	}, time.Minute)
 	phases, err := buildPhases(cr)
 	if err != nil {
@@ -79,11 +79,11 @@ func TestBuildPhases_RampOK(t *testing.T) {
 }
 
 func TestBuildPhases_Spike(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 50,
-		Profile: &v1alpha1.LoadProfile{
+		Profile: &v1beta1.LoadProfile{
 			Pattern: "Spike",
-			Spikes: []v1alpha1.SpikeWindow{
+			Spikes: []v1beta1.SpikeWindow{
 				{At: metav1.Duration{Duration: 10 * time.Second}, Duration: metav1.Duration{Duration: 5 * time.Second}, RPS: 200},
 			},
 		},
@@ -102,11 +102,11 @@ func TestBuildPhases_Spike(t *testing.T) {
 }
 
 func TestBuildPhases_SpikeBelowBaseIsRejected(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 100,
-		Profile: &v1alpha1.LoadProfile{
+		Profile: &v1beta1.LoadProfile{
 			Pattern: "Spike",
-			Spikes: []v1alpha1.SpikeWindow{
+			Spikes: []v1beta1.SpikeWindow{
 				{At: metav1.Duration{Duration: 5 * time.Second}, Duration: metav1.Duration{Duration: 5 * time.Second}, RPS: 50},
 			},
 		},
@@ -117,7 +117,7 @@ func TestBuildPhases_SpikeBelowBaseIsRejected(t *testing.T) {
 }
 
 func TestBuildPhases_WarmupExceedsSLARejected(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS:        100,
 		WarmupDuration: &metav1.Duration{Duration: 2 * time.Minute},
 	}, time.Minute)
@@ -127,9 +127,9 @@ func TestBuildPhases_WarmupExceedsSLARejected(t *testing.T) {
 }
 
 func TestBuildPhases_PoissonOK(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 100,
-		Profile: &v1alpha1.LoadProfile{Pattern: "Poisson"},
+		Profile: &v1beta1.LoadProfile{Pattern: "Poisson"},
 	}, time.Minute)
 	phases, err := buildPhases(cr)
 	if err != nil {
@@ -143,9 +143,9 @@ func TestBuildPhases_PoissonOK(t *testing.T) {
 func TestBuildPhases_StepOK(t *testing.T) {
 	stepRPS := int32(50)
 	stepDur := metav1.Duration{Duration: 15 * time.Second}
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 100,
-		Profile: &v1alpha1.LoadProfile{
+		Profile: &v1beta1.LoadProfile{
 			Pattern:      "Step",
 			StepRPS:      &stepRPS,
 			StepDuration: &stepDur,
@@ -165,9 +165,9 @@ func TestBuildPhases_StepOK(t *testing.T) {
 
 func TestBuildPhases_StepRequiresStepRPSAndDuration(t *testing.T) {
 	stepRPS := int32(50)
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 100,
-		Profile: &v1alpha1.LoadProfile{
+		Profile: &v1beta1.LoadProfile{
 			Pattern: "Step",
 			StepRPS: &stepRPS, // missing StepDuration
 		},
@@ -178,9 +178,9 @@ func TestBuildPhases_StepRequiresStepRPSAndDuration(t *testing.T) {
 }
 
 func TestBuildPhases_UnknownPatternRejected(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 100,
-		Profile: &v1alpha1.LoadProfile{Pattern: "Lognormal"},
+		Profile: &v1beta1.LoadProfile{Pattern: "Lognormal"},
 	}, time.Minute)
 	if _, err := buildPhases(cr); err == nil {
 		t.Error("expected error for unknown pattern")
@@ -188,11 +188,11 @@ func TestBuildPhases_UnknownPatternRejected(t *testing.T) {
 }
 
 func TestBuildPhases_SpikeOverlapRejected(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 50,
-		Profile: &v1alpha1.LoadProfile{
+		Profile: &v1beta1.LoadProfile{
 			Pattern: "Spike",
-			Spikes: []v1alpha1.SpikeWindow{
+			Spikes: []v1beta1.SpikeWindow{
 				{At: metav1.Duration{Duration: 10 * time.Second}, Duration: metav1.Duration{Duration: 5 * time.Second}, RPS: 200},
 				// Second spike starts BEFORE the first ends.
 				{At: metav1.Duration{Duration: 12 * time.Second}, Duration: metav1.Duration{Duration: 3 * time.Second}, RPS: 300},
@@ -205,11 +205,11 @@ func TestBuildPhases_SpikeOverlapRejected(t *testing.T) {
 }
 
 func TestBuildPhases_SpikePastWindowRejected(t *testing.T) {
-	cr := crWithLoad(v1alpha1.LoadConfig{
+	cr := crWithLoad(v1beta1.LoadConfig{
 		BaseRPS: 50,
-		Profile: &v1alpha1.LoadProfile{
+		Profile: &v1beta1.LoadProfile{
 			Pattern: "Spike",
-			Spikes: []v1alpha1.SpikeWindow{
+			Spikes: []v1beta1.SpikeWindow{
 				// Spike ends past the SLA window.
 				{At: metav1.Duration{Duration: 55 * time.Second}, Duration: metav1.Duration{Duration: 10 * time.Second}, RPS: 200},
 			},

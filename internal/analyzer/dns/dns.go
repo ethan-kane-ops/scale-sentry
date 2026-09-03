@@ -13,7 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // KubernetesDefaultNDots is the ndots value the kubelet applies when a pod
@@ -54,7 +54,7 @@ func Audit(dnsConfig *corev1.PodDNSConfig) (Report, error) {
 
 // Diagnostics emits a DNSNdotsHigh alert when the effective ndots is the
 // default 5 (or higher). An explicit ndots below 5 is considered clean.
-func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
+func (r Report) Diagnostics() []v1beta1.DiagnosticAlert {
 	if r.Explicit && r.NDots < KubernetesDefaultNDots {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 	if r.Explicit {
 		source = "an explicit dnsConfig override"
 	}
-	return []v1alpha1.DiagnosticAlert{{
+	return []v1beta1.DiagnosticAlert{{
 		Type:     "DNSNdotsHigh",
 		Severity: "Warning",
 		Message: fmt.Sprintf(

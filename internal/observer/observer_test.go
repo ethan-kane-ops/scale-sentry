@@ -1,6 +1,7 @@
 package observer
 
 import (
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"testing"
 	"time"
 
@@ -99,7 +100,7 @@ func TestTrafficVerdict(t *testing.T) {
 	tests := []struct {
 		name   string
 		result *loadgen.Result
-		want   string
+		want   v1beta1.Verdict
 	}{
 		{"no result", nil, VerdictUnknown},
 		{"clean run", &loadgen.Result{Sent: 1000, Failed: 0}, VerdictPass},
@@ -165,9 +166,9 @@ func TestPickColdStartPod(t *testing.T) {
 	runStart := now
 
 	tests := []struct {
-		name     string
-		pods     []corev1.Pod
-		want     string // empty means nil
+		name string
+		pods []corev1.Pod
+		want string // empty means nil
 	}{
 		{
 			name: "no pods at all",

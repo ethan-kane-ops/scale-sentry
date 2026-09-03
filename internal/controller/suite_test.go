@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 var (
@@ -30,7 +30,7 @@ var (
 func TestMain(m *testing.M) {
 	testScheme = runtime.NewScheme()
 	must(clientgoscheme.AddToScheme(testScheme))
-	must(v1alpha1.AddToScheme(testScheme))
+	must(v1beta1.AddToScheme(testScheme))
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},

@@ -29,7 +29,7 @@ The full run lifecycle, keyed to the Events the controller emits, is on the [Eve
 
 ## Features
 
-- **Custom Resource driven**: the `validation.scale-sentry.ek.co/v1alpha1` `ScaleValidation` resource stores test configuration, SLA targets, and execution history in the resource's `status` subresource.
+- **Custom Resource driven**: the `validation.scale-sentry.ek.co/v1beta1` `ScaleValidation` resource stores test configuration, SLA targets, and execution history in the resource's `status` subresource.
 - **Annotation bridge**: annotating an existing `Deployment` with `validation.scale-sentry.ek.co/enabled=true` provisions a shadow `ScaleValidation` automatically, no manifests required.
 - **Three protocols**: drive HTTP/1.1, HTTP/2, or gRPC load, because validating an h2 or gRPC service with an h1 client measures the wrong thing. See [Protocols](protocols.md).
 - **Open-loop load profiles**: `Constant`, `Poisson`, `Ramp`, `Step`, and `Spike` arrival models plus a warmup phase that keeps cold-start noise out of the latency histogram. See [Load Profiles](load-profiles.md).

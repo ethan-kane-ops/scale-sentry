@@ -1,7 +1,7 @@
 # gRPC Health/Check against the grpc-health Service ClusterIP. The
 # loadgen dials host:port (URL path ignored) and issues unary
 # Health.Check RPCs at the configured rate.
-apiVersion: validation.scale-sentry.ek.co/v1alpha1
+apiVersion: validation.scale-sentry.ek.co/v1beta1
 kind: ScaleValidation
 metadata:
   name: e2e-grpc-clusterip

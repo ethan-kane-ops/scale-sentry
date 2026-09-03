@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // Stat is the parsed contents of a cgroup v2 `cpu.stat` file. Unknown
@@ -131,20 +131,20 @@ const (
 	CriticalThresholdPercent = 25.0
 )
 
-// Diagnostics converts the report into zero or one [v1alpha1.DiagnosticAlert].
+// Diagnostics converts the report into zero or one [v1beta1.DiagnosticAlert].
 // Returns nil when no throttling was observed.
-func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
+func (r Report) Diagnostics() []v1beta1.DiagnosticAlert {
 	if r.Throttled == 0 || r.Periods == 0 {
 		return nil
 	}
-	severity := "Info"
+	severity := v1beta1.SeverityInfo
 	switch {
 	case r.ThrottlePercent >= CriticalThresholdPercent:
-		severity = "Critical"
+		severity = v1beta1.SeverityCritical
 	case r.ThrottlePercent >= WarnThresholdPercent:
-		severity = "Warning"
+		severity = v1beta1.SeverityWarning
 	}
-	return []v1alpha1.DiagnosticAlert{{
+	return []v1beta1.DiagnosticAlert{{
 		Type:     "CPUThrottling",
 		Severity: severity,
 		Message: fmt.Sprintf(

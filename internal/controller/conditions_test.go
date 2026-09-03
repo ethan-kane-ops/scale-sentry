@@ -7,16 +7,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
 )
 
 func TestFinishedVerdict(t *testing.T) {
 	tests := []struct {
 		name       string
-		sla        string
-		traffic    string
-		wantPhase  string
+		sla        v1beta1.Verdict
+		traffic    v1beta1.Verdict
+		wantPhase  v1beta1.Phase
 		wantReason string
 	}{
 		{"both pass", observer.VerdictPass, observer.VerdictPass, PhaseSucceeded, FinishedReasonSucceeded},
@@ -41,7 +41,7 @@ func TestFinishedVerdict(t *testing.T) {
 }
 
 func TestMarkFinished(t *testing.T) {
-	cr := &v1alpha1.ScaleValidation{}
+	cr := &v1beta1.ScaleValidation{}
 	cr.Generation = 4
 
 	markFinished(cr, FinishedReasonSucceeded, "SLA=Pass traffic=Pass")
@@ -65,7 +65,7 @@ func TestMarkFinished(t *testing.T) {
 // not churn lastTransitionTime, or every requeue would look like a fresh
 // terminal event to anything watching.
 func TestMarkFinished_TransitionTimeStableOnRepeat(t *testing.T) {
-	cr := &v1alpha1.ScaleValidation{}
+	cr := &v1beta1.ScaleValidation{}
 	markFinished(cr, FinishedReasonSucceeded, "first")
 	first := meta.FindStatusCondition(cr.Status.Conditions, ConditionFinished).LastTransitionTime
 

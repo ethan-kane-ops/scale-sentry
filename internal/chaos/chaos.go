@@ -15,7 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// Config mirrors api/v1alpha1.DisruptionConfig with the trigger delay
+// Config mirrors api/v1beta1.DisruptionConfig with the trigger delay
 // already resolved to a time.Duration.
 type Config struct {
 	InjectPodDeletion   bool

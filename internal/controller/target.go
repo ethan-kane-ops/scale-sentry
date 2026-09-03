@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // defaultTargetAPIVersion is assumed when spec.targetRef.apiVersion is
@@ -34,7 +34,7 @@ var scaleGVK = schema.GroupVersionKind{Group: "autoscaling", Version: "v1", Kind
 var errTargetUnresolvable = errors.New("targetRef is unresolvable")
 
 // targetGVK parses spec.targetRef into a GroupVersionKind.
-func targetGVK(cr *v1alpha1.ScaleValidation) (schema.GroupVersionKind, error) {
+func targetGVK(cr *v1beta1.ScaleValidation) (schema.GroupVersionKind, error) {
 	apiVersion := cr.Spec.TargetRef.APIVersion
 	if apiVersion == "" {
 		apiVersion = defaultTargetAPIVersion
@@ -53,7 +53,7 @@ func targetGVK(cr *v1alpha1.ScaleValidation) (schema.GroupVersionKind, error) {
 // unstructured object. Unstructured rather than a typed appsv1.Deployment
 // so any scalable kind resolves; callers that only need replica counts
 // should prefer targetSelector, which goes through the scale subresource.
-func (r *ScaleValidationReconciler) targetObject(ctx context.Context, cr *v1alpha1.ScaleValidation) (*unstructured.Unstructured, error) {
+func (r *ScaleValidationReconciler) targetObject(ctx context.Context, cr *v1beta1.ScaleValidation) (*unstructured.Unstructured, error) {
 	gvk, err := targetGVK(cr)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (r *ScaleValidationReconciler) targetObject(ctx context.Context, cr *v1alph
 // status.selector, the label selector the workload's own controller uses
 // to own its pods. This is the same value the HPA reads, so pods counted
 // against it are exactly the pods the HPA is scaling.
-func (r *ScaleValidationReconciler) targetSelector(ctx context.Context, cr *v1alpha1.ScaleValidation) (string, error) {
+func (r *ScaleValidationReconciler) targetSelector(ctx context.Context, cr *v1beta1.ScaleValidation) (string, error) {
 	gvk, err := targetGVK(cr)
 	if err != nil {
 		return "", err
@@ -107,7 +107,7 @@ func (r *ScaleValidationReconciler) targetSelector(ctx context.Context, cr *v1al
 // the manager has no RBAC for, will never resolve on a retry; NotFound is
 // deliberately left alone so the readiness gate can keep waiting for a
 // workload the user has not applied yet.
-func classifyTargetError(cr *v1alpha1.ScaleValidation, err error) error {
+func classifyTargetError(cr *v1beta1.ScaleValidation, err error) error {
 	ref := cr.Spec.TargetRef
 	switch {
 	case meta.IsNoMatchError(err):
@@ -124,7 +124,7 @@ func classifyTargetError(cr *v1alpha1.ScaleValidation, err error) error {
 // subresource's selector. Returns (false, 0, nil) when the workload does
 // not exist yet: applying a ScaleValidation before its workload is a
 // normal ordering, not an error.
-func (r *ScaleValidationReconciler) targetPodsReady(ctx context.Context, cr *v1alpha1.ScaleValidation) (bool, int32, error) {
+func (r *ScaleValidationReconciler) targetPodsReady(ctx context.Context, cr *v1beta1.ScaleValidation) (bool, int32, error) {
 	selector, err := r.targetSelector(ctx, cr)
 	switch {
 	case apierrors.IsNotFound(err):

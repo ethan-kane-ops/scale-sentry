@@ -1,6 +1,7 @@
 package probelag
 
 import (
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"testing"
 	"time"
 
@@ -111,7 +112,7 @@ func TestDiagnostics_SparseSamplingBands(t *testing.T) {
 	tests := []struct {
 		name         string
 		lag          time.Duration
-		wantSeverity string
+		wantSeverity v1beta1.Severity
 		wantAlerts   int
 	}{
 		{"lag below warn threshold (5s with 5s period)", 5 * time.Second, "", 0},

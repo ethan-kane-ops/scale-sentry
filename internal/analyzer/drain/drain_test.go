@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/leakage"
 )
 
@@ -124,7 +125,7 @@ func TestDiagnostics_SeverityBands(t *testing.T) {
 	tests := []struct {
 		name         string
 		dropped      int
-		wantSeverity string
+		wantSeverity v1beta1.Severity
 		wantAlerts   int
 	}{
 		{"no drops", 0, "", 0},
