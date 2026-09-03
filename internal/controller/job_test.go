@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,6 +165,29 @@ func TestResolveTargetURL_AutoDiscoverProbeMissing(t *testing.T) {
 	})
 	if _, err := r.resolveTargetURL(context.Background(), cr); err == nil {
 		t.Error("expected error when the target has no readiness probe")
+	}
+}
+
+// TestResolveTargetURL_AutoDiscoverProbeNoContainers covers a target kind
+// that carries no pod template containers. AutoDiscoverProbe needs one, so
+// the error has to name the workload rather than panic on an empty slice.
+func TestResolveTargetURL_AutoDiscoverProbeNoContainers(t *testing.T) {
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "demo"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{}},
+		},
+	}
+	r := testReconciler(deploy)
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.Target.Mode = "AutoDiscoverProbe"
+	})
+	_, err := r.resolveTargetURL(context.Background(), cr)
+	if err == nil {
+		t.Fatal("expected an error when the target has no pod template containers")
+	}
+	if !strings.Contains(err.Error(), "app") {
+		t.Errorf("error should name the workload, got %q", err)
 	}
 }
 
