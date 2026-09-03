@@ -19,7 +19,7 @@ func makePDB(name string, matchLabels map[string]string, minAvail, maxUnavail *i
 	}
 }
 
-func intOrStr(i int32) *intstr.IntOrString { v := intstr.FromInt32(i); return &v }
+func intOrStr(i int32) *intstr.IntOrString  { v := intstr.FromInt32(i); return &v }
 func pctOrStr(s string) *intstr.IntOrString { v := intstr.FromString(s); return &v }
 
 func TestAudit_Coverage(t *testing.T) {

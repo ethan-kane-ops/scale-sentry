@@ -38,7 +38,7 @@ const (
 	ProtocolGRPC Protocol = "GRPC"
 )
 
-// TargetMode mirrors api/v1alpha1.TargetConfig.Mode for result tagging.
+// TargetMode mirrors api/v1beta1.TargetConfig.Mode for result tagging.
 // The loadgen package does not resolve modes, the controller resolves them
 // and passes a concrete URL plus this label.
 type TargetMode string
@@ -49,7 +49,7 @@ const (
 	TargetCustomPath     TargetMode = "CustomPath"
 )
 
-// NetworkPath mirrors api/v1alpha1.TargetConfig.NetworkPath for result tagging.
+// NetworkPath mirrors api/v1beta1.TargetConfig.NetworkPath for result tagging.
 type NetworkPath string
 
 const (

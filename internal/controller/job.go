@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/probe"
 )
 
@@ -43,14 +43,14 @@ const (
 
 // loadgenJobName is the deterministic name of the loadgen Job for cr, so
 // reconciliation can find an existing run instead of spawning duplicates.
-func loadgenJobName(cr *v1alpha1.ScaleValidation) string {
+func loadgenJobName(cr *v1beta1.ScaleValidation) string {
 	return cr.Name + "-loadgen"
 }
 
 // buildLoadgenJob constructs the validation Job: the loadgen container plus
 // the observer native sidecar, sharing an emptyDir for the result file.
 // BackoffLimit is 0, a load run is a measurement, not retryable work.
-func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation, url string) (*batchv1.Job, error) {
+func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1beta1.ScaleValidation, url string) (*batchv1.Job, error) {
 	backoffLimit := int32(0)
 	grace := int64(jobGracePeriodSeconds)
 	sidecarRestart := corev1.ContainerRestartPolicyAlways
@@ -143,16 +143,16 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 // the controller marshals the resolved phase list into --phases JSON;
 // otherwise the legacy --rps/--duration flags are passed so existing
 // samples and the simple-Constant case keep working unchanged.
-func loadgenArgs(cr *v1alpha1.ScaleValidation, url, caBundlePath string) ([]string, error) {
+func loadgenArgs(cr *v1beta1.ScaleValidation, url, caBundlePath string) ([]string, error) {
 	args := []string{
 		"--url", url,
 		"--connection-mode", defaultLoadgenConnectionMode,
-		"--target-mode", cr.Spec.Target.Mode,
-		"--network-path", cr.Spec.Target.NetworkPath,
+		"--target-mode", string(cr.Spec.Target.Mode),
+		"--network-path", string(cr.Spec.Target.NetworkPath),
 		"--result-file", resultFilePath,
 	}
 	if proto := cr.Spec.Target.Protocol; proto != "" {
-		args = append(args, "--protocol", proto)
+		args = append(args, "--protocol", string(proto))
 	}
 	if g := cr.Spec.Target.GRPC; g != nil && g.Service != "" {
 		args = append(args, "--grpc-service", g.Service)
@@ -185,7 +185,7 @@ func loadgenArgs(cr *v1alpha1.ScaleValidation, url, caBundlePath string) ([]stri
 }
 
 // caBundleRef returns the ConfigMapKeyRef from the CR's TLS spec, or nil.
-func caBundleRef(cr *v1alpha1.ScaleValidation) *v1alpha1.ConfigMapKeyRef {
+func caBundleRef(cr *v1beta1.ScaleValidation) *v1beta1.ConfigMapKeyRef {
 	if cr.Spec.Target.TLS == nil || cr.Spec.Target.TLS.CABundle == nil {
 		return nil
 	}
@@ -196,7 +196,7 @@ func caBundleRef(cr *v1alpha1.ScaleValidation) *v1alpha1.ConfigMapKeyRef {
 // GroupVersionResource is resolved here rather than in the observer: the
 // manager already runs a RESTMapper, so the sidecar needs no discovery
 // permissions of its own to read the workload's scale subresource.
-func (r *ScaleValidationReconciler) observerArgs(cr *v1alpha1.ScaleValidation) ([]string, error) {
+func (r *ScaleValidationReconciler) observerArgs(cr *v1beta1.ScaleValidation) ([]string, error) {
 	gvk, err := targetGVK(cr)
 	if err != nil {
 		return nil, err
@@ -225,7 +225,7 @@ func (r *ScaleValidationReconciler) observerArgs(cr *v1alpha1.ScaleValidation) (
 // name; .spec.target.host overrides that when set, which is the entry
 // point for Gateway / Ingress runs that route through an edge address
 // rather than the in-cluster Service DNS.
-func (r *ScaleValidationReconciler) resolveTargetURL(ctx context.Context, cr *v1alpha1.ScaleValidation) (string, error) {
+func (r *ScaleValidationReconciler) resolveTargetURL(ctx context.Context, cr *v1beta1.ScaleValidation) (string, error) {
 	host := cr.Spec.Target.Host
 	if host == "" {
 		host = fmt.Sprintf("%s.%s.svc.cluster.local", cr.Spec.TargetRef.Name, cr.Namespace)
@@ -258,7 +258,7 @@ func (r *ScaleValidationReconciler) resolveTargetURL(ctx context.Context, cr *v1
 // at the same path on every workload kind that has one (Deployment,
 // StatefulSet, ReplicaSet, DaemonSet), so the lookup is done on the
 // unstructured object rather than against a single typed kind.
-func (r *ScaleValidationReconciler) discoverProbe(ctx context.Context, cr *v1alpha1.ScaleValidation) (probe.Spec, error) {
+func (r *ScaleValidationReconciler) discoverProbe(ctx context.Context, cr *v1beta1.ScaleValidation) (probe.Spec, error) {
 	obj, err := r.targetObject(ctx, cr)
 	if err != nil {
 		return probe.Spec{}, err

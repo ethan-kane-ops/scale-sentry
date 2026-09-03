@@ -24,7 +24,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/cgroup"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/drain"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/hpa"
@@ -33,11 +33,14 @@ import (
 	"github.com/ethan-kane-ops/scale-sentry/internal/loadgen"
 )
 
-// Verdict values for SLAStatus / TrafficIntegrity, mirroring the CRD enums.
+// Verdict values for SLAStatus / TrafficIntegrity. Aliases of the API
+// types rather than a parallel set of strings: these end up verbatim on
+// ScaleValidation.status, so a second definition could drift from the CRD
+// enum without anything noticing.
 const (
-	VerdictPass    = "Pass"
-	VerdictFail    = "Fail"
-	VerdictUnknown = "Unknown"
+	VerdictPass    = v1beta1.VerdictPass
+	VerdictFail    = v1beta1.VerdictFail
+	VerdictUnknown = v1beta1.VerdictUnknown
 )
 
 // defaultPollInterval is how often the HPA is sampled during the run.
@@ -84,13 +87,13 @@ type Config struct {
 // Report is the observer's output, printed as JSON for the controller to
 // fold into ScaleValidationStatus.
 type Report struct {
-	Diagnostics      []v1alpha1.DiagnosticAlert `json:"diagnostics"`
-	ScaleUpDuration  *metav1.Duration           `json:"scaleUpDuration,omitempty"`
-	SLAStatus        string                     `json:"slaStatus"`
-	TrafficIntegrity string                     `json:"trafficIntegrity"`
-	TotalRequests    int64                      `json:"totalRequests"`
-	FailedRequests   int64                      `json:"failedRequests"`
-	FailureRate      float64                    `json:"failureRate"`
+	Diagnostics      []v1beta1.DiagnosticAlert `json:"diagnostics"`
+	ScaleUpDuration  *metav1.Duration          `json:"scaleUpDuration,omitempty"`
+	SLAStatus        v1beta1.Verdict           `json:"slaStatus"`
+	TrafficIntegrity v1beta1.Verdict           `json:"trafficIntegrity"`
+	TotalRequests    int64                     `json:"totalRequests"`
+	FailedRequests   int64                     `json:"failedRequests"`
+	FailureRate      float64                   `json:"failureRate"`
 }
 
 // Session carries the observer's clients and accumulated state for one run.
@@ -197,7 +200,7 @@ func (s *Session) report(hpaReport *hpa.Report, obs *observed, load loadResult) 
 		TrafficIntegrity: VerdictUnknown,
 	}
 
-	var diags []v1alpha1.DiagnosticAlert
+	var diags []v1beta1.DiagnosticAlert
 	if hpaReport != nil {
 		diags = append(diags, hpaReport.Diagnostics()...)
 		rep.SLAStatus = slaVerdict(*hpaReport)
@@ -233,7 +236,7 @@ func (s *Session) report(hpaReport *hpa.Report, obs *observed, load loadResult) 
 			// Flag whenever a correlation analyzer fires so the operator
 			// reads the leakage / drain counts as an approximation
 			// instead of a precise audit.
-			correlationDiags = append(correlationDiags, v1alpha1.DiagnosticAlert{
+			correlationDiags = append(correlationDiags, v1beta1.DiagnosticAlert{
 				Type:           "MetricsLikelySkewed",
 				Severity:       "Info",
 				Message:        "endpoint event timestamps reflect informer-watch receive time, not kubelet/apiserver decision time; leakage and drain counts can be off by tens to hundreds of milliseconds",
@@ -292,7 +295,7 @@ func (s *Session) addEvents(evs []leakage.EndpointEvent) {
 }
 
 // slaVerdict maps an HPA report to a Pass/Fail verdict.
-func slaVerdict(r hpa.Report) string {
+func slaVerdict(r hpa.Report) v1beta1.Verdict {
 	if r.SLABreached {
 		return VerdictFail
 	}
@@ -300,7 +303,7 @@ func slaVerdict(r hpa.Report) string {
 }
 
 // trafficVerdict maps a loadgen result to a Pass/Fail verdict.
-func trafficVerdict(r *loadgen.Result) string {
+func trafficVerdict(r *loadgen.Result) v1beta1.Verdict {
 	if r == nil {
 		return VerdictUnknown
 	}

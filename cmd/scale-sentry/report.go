@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/report"
 )
 
@@ -28,7 +28,7 @@ func newReportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var alerts []v1alpha1.DiagnosticAlert
+			var alerts []v1beta1.DiagnosticAlert
 			if len(raw) > 0 {
 				if err := json.Unmarshal(raw, &alerts); err != nil {
 					return fmt.Errorf("decode diagnostics json: %w", err)

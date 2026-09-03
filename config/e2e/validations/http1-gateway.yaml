@@ -3,7 +3,7 @@
 # HTTPRoute whoami-h1 back to the workload. The HPA fires on backend CPU
 # the same way as the ClusterIP run; the Gateway-vs-direct latency delta
 # is the load-balanced-edge cost the e2e is meant to surface.
-apiVersion: validation.scale-sentry.ek.co/v1alpha1
+apiVersion: validation.scale-sentry.ek.co/v1beta1
 kind: ScaleValidation
 metadata:
   name: e2e-http1-gateway

@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // fixtureNamespace is the fixed namespace every config/e2e fixture lives
@@ -161,13 +161,13 @@ func resetTargetToColdStart(t *testing.T, c client.Client, ctx context.Context, 
 
 // loadValidationFixture decodes one config/e2e/validations YAML into a
 // typed CR, so the scenario submits exactly what the README documents.
-func loadValidationFixture(t *testing.T, name string) *v1alpha1.ScaleValidation {
+func loadValidationFixture(t *testing.T, name string) *v1beta1.ScaleValidation {
 	t.Helper()
 	raw, err := os.ReadFile(repoPath("config", "e2e", "validations", name))
 	if err != nil {
 		t.Fatalf("read validation fixture: %v", err)
 	}
-	var cr v1alpha1.ScaleValidation
+	var cr v1beta1.ScaleValidation
 	if err := yaml.UnmarshalStrict(raw, &cr); err != nil {
 		t.Fatalf("decode validation fixture %s: %v", name, err)
 	}

@@ -21,7 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
 )
 
@@ -74,16 +74,16 @@ func drainEventReasons(t *testing.T, r *ScaleValidationReconciler) []string {
 	}
 }
 
-func newScaleValidation(ns, name string, mod func(*v1alpha1.ScaleValidation)) *v1alpha1.ScaleValidation {
-	cr := &v1alpha1.ScaleValidation{
+func newScaleValidation(ns, name string, mod func(*v1beta1.ScaleValidation)) *v1beta1.ScaleValidation {
+	cr := &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{
+		Spec: v1beta1.ScaleValidationSpec{
+			TargetRef: v1beta1.CrossVersionObjectReference{
 				APIVersion: "apps/v1", Kind: "Deployment", Name: "app",
 			},
 			SLA:    metav1.Duration{Duration: time.Minute},
-			Target: v1alpha1.TargetConfig{Mode: "ServiceDefault", Port: 8080, NetworkPath: "ClusterIP"},
-			Load:   v1alpha1.LoadConfig{BaseRPS: 100, ConcurrencyFactor: 10},
+			Target: v1beta1.TargetConfig{Mode: "ServiceDefault", Port: 8080, NetworkPath: "ClusterIP"},
+			Load:   v1beta1.LoadConfig{BaseRPS: 100, ConcurrencyFactor: 10},
 		},
 	}
 	if mod != nil {
@@ -149,9 +149,9 @@ func reconcileCR(t *testing.T, r *ScaleValidationReconciler, ns, name string) {
 	}
 }
 
-func getCR(t *testing.T, ns, name string) *v1alpha1.ScaleValidation {
+func getCR(t *testing.T, ns, name string) *v1beta1.ScaleValidation {
 	t.Helper()
-	var cr v1alpha1.ScaleValidation
+	var cr v1beta1.ScaleValidation
 	if err := k8sClient.Get(context.Background(),
 		types.NamespacedName{Namespace: ns, Name: name}, &cr); err != nil {
 		t.Fatalf("get ScaleValidation %s/%s: %v", ns, name, err)
@@ -248,7 +248,7 @@ func createObserverPod(t *testing.T, ns, crName string) {
 // expected reason. Every terminal path must set it: a CI gate blocking on
 // `kubectl wait --for=condition=Finished` hangs until its own timeout
 // against any path that forgets, which is the failure ENG-149 removes.
-func assertFinished(t *testing.T, cr *v1alpha1.ScaleValidation, wantReason string) {
+func assertFinished(t *testing.T, cr *v1beta1.ScaleValidation, wantReason string) {
 	t.Helper()
 	cond := meta.FindStatusCondition(cr.Status.Conditions, ConditionFinished)
 	if cond == nil {
@@ -341,7 +341,7 @@ func TestIntegration_FinishRunSucceeded(t *testing.T) {
 		TrafficIntegrity: observer.VerdictPass,
 		TotalRequests:    5000,
 		FailedRequests:   3,
-		Diagnostics: []v1alpha1.DiagnosticAlert{
+		Diagnostics: []v1beta1.DiagnosticAlert{
 			{Type: "CPUThrottling", Severity: "Warning", Message: "throttled"},
 		},
 	})
@@ -421,7 +421,7 @@ func TestIntegration_ShadowControllerCreatesCR(t *testing.T) {
 		t.Fatalf("shadow reconcile: %v", err)
 	}
 
-	var sv v1alpha1.ScaleValidation
+	var sv v1beta1.ScaleValidation
 	if err := k8sClient.Get(context.Background(),
 		types.NamespacedName{Namespace: ns, Name: "web-shadow"}, &sv); err != nil {
 		t.Fatalf("shadow ScaleValidation not created: %v", err)
@@ -440,7 +440,7 @@ func TestIntegration_AutoDiscoverProbe(t *testing.T) {
 	deploy := newTargetDeployment(ns, "app", true)
 	mustCreate(t, deploy)
 	createHealthyTargetPod(t, ns, "app-pod", "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
 	}))
 
@@ -538,7 +538,7 @@ func TestIntegration_StatefulSetTarget(t *testing.T) {
 	mustCreate(t, sts)
 	createHealthyTargetPod(t, ns, "sts-0", "sts")
 
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.TargetRef.Kind = "StatefulSet"
 		cr.Spec.TargetRef.Name = "sts"
 	}))
@@ -579,8 +579,8 @@ func flagValue(args []string, flag string) string {
 func TestIntegration_UnknownTargetKind_FailsFast(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.TargetRef.APIVersion = "argoproj.io/v1alpha1"
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.TargetRef.APIVersion = "argoproj.io/v1beta1"
 		cr.Spec.TargetRef.Kind = "Rollout"
 		cr.Spec.TargetRef.Name = "rollout"
 	}))
@@ -593,7 +593,7 @@ func TestIntegration_UnknownTargetKind_FailsFast(t *testing.T) {
 		t.Fatalf("phase = %q, want Error for an unresolvable targetRef kind", cr.Status.Phase)
 	}
 	assertFinished(t, cr, FinishedReasonTargetUnsupported)
-	var found *v1alpha1.DiagnosticAlert
+	var found *v1beta1.DiagnosticAlert
 	for i := range cr.Status.Diagnostics {
 		if cr.Status.Diagnostics[i].Type == "TargetUnsupported" {
 			found = &cr.Status.Diagnostics[i]
@@ -673,7 +673,7 @@ func TestIntegration_FinishedCondition_AbsentUntilTerminal(t *testing.T) {
 // counted. History growing by one is the unambiguous "a run completed"
 // signal, since a scheduled CR is already in a terminal phase when its
 // next run begins.
-func driveOneRun(t *testing.T, r *ScaleValidationReconciler, ns, name string) *v1alpha1.ScaleValidation {
+func driveOneRun(t *testing.T, r *ScaleValidationReconciler, ns, name string) *v1beta1.ScaleValidation {
 	t.Helper()
 	start := len(getCR(t, ns, name).Status.History)
 	for range 15 {
@@ -729,7 +729,7 @@ func TestIntegration_Schedule_RerunsAndAccumulatesHistory(t *testing.T) {
 	r := passingReconciler(t)
 	advance := advanceClock(r)
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "@every 1s"
 	}))
 
@@ -757,7 +757,7 @@ func TestIntegration_Schedule_ResetsRunScopedStatus(t *testing.T) {
 		TrafficIntegrity: observer.VerdictPass,
 		TotalRequests:    10,
 		FailedRequests:   9,
-		Diagnostics:      []v1alpha1.DiagnosticAlert{{Type: "CPUThrottling", Severity: "Warning", Message: "throttled"}},
+		Diagnostics:      []v1beta1.DiagnosticAlert{{Type: "CPUThrottling", Severity: "Warning", Message: "throttled"}},
 	})
 	if err != nil {
 		t.Fatalf("marshal report: %v", err)
@@ -777,7 +777,7 @@ func TestIntegration_Schedule_ResetsRunScopedStatus(t *testing.T) {
 	advance := advanceClock(r)
 
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "@every 1s"
 	}))
 
@@ -813,7 +813,7 @@ func TestIntegration_Schedule_Suspend(t *testing.T) {
 	r := passingReconciler(t)
 	advance := advanceClock(r)
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "@every 1s"
 	}))
 
@@ -854,7 +854,7 @@ func TestIntegration_Schedule_PublishesNextRunTime(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := passingReconciler(t)
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "0 2 * * *" // daily at 02:00
 	}))
 
@@ -883,7 +883,7 @@ func TestIntegration_Schedule_InvalidRejectedUpFront(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "every tuesday please"
 	}))
 
@@ -916,7 +916,7 @@ func TestIntegration_Schedule_BecomesInvalidAfterFirstRun(t *testing.T) {
 	r := passingReconciler(t)
 	advance := advanceClock(r)
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "@every 1s"
 	}))
 
@@ -957,7 +957,7 @@ func TestIntegration_SpecChange_RecoversABrokenSchedule(t *testing.T) {
 	r := passingReconciler(t)
 	advance := advanceClock(r)
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "not a schedule"
 	}))
 
@@ -1047,7 +1047,7 @@ func TestIntegration_Suspend_OutranksASpecEdit(t *testing.T) {
 	r := passingReconciler(t)
 	advance := advanceClock(r)
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Schedule = "@every 1s"
 	}))
 
@@ -1140,7 +1140,7 @@ func TestIntegration_Finalizer_DeleteWithNoChildren(t *testing.T) {
 	reconcileCR(t, r, ns, "run") // finalize path
 
 	if err := k8sClient.Get(context.Background(),
-		types.NamespacedName{Namespace: ns, Name: "run"}, &v1alpha1.ScaleValidation{}); err == nil {
+		types.NamespacedName{Namespace: ns, Name: "run"}, &v1beta1.ScaleValidation{}); err == nil {
 		t.Error("CR still present after finalize with no children")
 	}
 }
@@ -1187,7 +1187,7 @@ func TestIntegration_Finalizer_DeleteWithRunningChild(t *testing.T) {
 
 	reconcileCR(t, r, ns, "run") // finalizer drops
 	if err := k8sClient.Get(context.Background(),
-		types.NamespacedName{Namespace: ns, Name: "run"}, &v1alpha1.ScaleValidation{}); err == nil {
+		types.NamespacedName{Namespace: ns, Name: "run"}, &v1beta1.ScaleValidation{}); err == nil {
 		t.Error("CR still present after finalize with running child cleared")
 	}
 }
@@ -1200,10 +1200,10 @@ func TestIntegration_TLSCABundle_Missing(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
-			CABundle: &v1alpha1.CABundleSource{
-				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "missing-ca", Key: "ca.crt"},
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1beta1.TLSConfig{
+			CABundle: &v1beta1.CABundleSource{
+				ConfigMapRef: v1beta1.ConfigMapKeyRef{Name: "missing-ca", Key: "ca.crt"},
 			},
 		}
 	}))
@@ -1235,10 +1235,10 @@ func TestIntegration_TLSCABundle_MissingKey(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "internal-ca", Namespace: ns},
 		Data:       map[string]string{"other.crt": "PEM"},
 	})
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
-			CABundle: &v1alpha1.CABundleSource{
-				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1beta1.TLSConfig{
+			CABundle: &v1beta1.CABundleSource{
+				ConfigMapRef: v1beta1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
 			},
 		}
 	}))
@@ -1265,10 +1265,10 @@ func TestIntegration_TLSCABundle_Present(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "internal-ca", Namespace: ns},
 		Data:       map[string]string{"ca.crt": "PEM"},
 	})
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
-			CABundle: &v1alpha1.CABundleSource{
-				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1beta1.TLSConfig{
+			CABundle: &v1beta1.CABundleSource{
+				ConfigMapRef: v1beta1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
 			},
 		}
 	}))
@@ -1344,7 +1344,7 @@ func TestIntegration_Events_VerdictFail(t *testing.T) {
 	line, err := observer.MarshalReportLine(observer.Report{
 		SLAStatus:        observer.VerdictFail,
 		TrafficIntegrity: observer.VerdictPass,
-		Diagnostics: []v1alpha1.DiagnosticAlert{
+		Diagnostics: []v1beta1.DiagnosticAlert{
 			{Type: "HPAReactSlow", Severity: "Critical", Message: "scale-up exceeded SLA"},
 		},
 	})
@@ -1375,10 +1375,10 @@ func TestIntegration_Events_TLSCABundleMissing(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
 	mustCreateReadyTarget(t, ns, "app")
-	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
-			CABundle: &v1alpha1.CABundleSource{
-				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "missing-ca", Key: "ca.crt"},
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1beta1.TLSConfig{
+			CABundle: &v1beta1.CABundleSource{
+				ConfigMapRef: v1beta1.ConfigMapKeyRef{Name: "missing-ca", Key: "ca.crt"},
 			},
 		}
 	}))
@@ -1464,8 +1464,8 @@ func TestIntegration_Disruption_DeletesVictim(t *testing.T) {
 	r := newReconciler()
 	mustCreateReadyTarget(t, ns, "app") // supplies the first healthy pod
 	createHealthyTargetPod(t, ns, "app-0", "app")
-	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
+	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Disruption = &v1beta1.DisruptionConfig{
 			InjectPodDeletion:   true,
 			MinReplicasForChaos: 2,
 		}
@@ -1501,8 +1501,8 @@ func TestIntegration_Disruption_SkippedBelowMinReplicas(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
 	mustCreateReadyTarget(t, ns, "app") // supplies the only healthy pod
-	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
+	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Disruption = &v1beta1.DisruptionConfig{
 			InjectPodDeletion:   true,
 			MinReplicasForChaos: 2,
 		}
@@ -1532,8 +1532,8 @@ func TestIntegration_Disruption_TriggerDelayRequeues(t *testing.T) {
 	r := newReconciler()
 	mustCreateReadyTarget(t, ns, "app") // supplies the first healthy pod
 	createHealthyTargetPod(t, ns, "app-0", "app")
-	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
+	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Disruption = &v1beta1.DisruptionConfig{
 			InjectPodDeletion:   true,
 			MinReplicasForChaos: 2,
 			TriggerDelay:        &metav1.Duration{Duration: time.Hour},

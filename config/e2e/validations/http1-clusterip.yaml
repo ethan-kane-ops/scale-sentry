@@ -1,6 +1,6 @@
 # HTTP/1.1 against the whoami-h1 Service ClusterIP. Default Host
 # resolution targets whoami-h1.scale-sentry-e2e.svc.cluster.local:80.
-apiVersion: validation.scale-sentry.ek.co/v1alpha1
+apiVersion: validation.scale-sentry.ek.co/v1beta1
 kind: ScaleValidation
 metadata:
   name: e2e-http1-clusterip

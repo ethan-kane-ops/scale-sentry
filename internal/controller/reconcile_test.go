@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/metrics"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
 )
@@ -42,9 +42,9 @@ func TestObserverTerminated(t *testing.T) {
 }
 
 func TestApplyReport(t *testing.T) {
-	cr := &v1alpha1.ScaleValidation{}
+	cr := &v1beta1.ScaleValidation{}
 	applyReport(cr, observer.Report{
-		Diagnostics: []v1alpha1.DiagnosticAlert{
+		Diagnostics: []v1beta1.DiagnosticAlert{
 			{Type: "CPUThrottling", Severity: "Warning", Message: "throttled"},
 		},
 		SLAStatus:        observer.VerdictPass,
@@ -60,7 +60,8 @@ func TestApplyReport(t *testing.T) {
 	if cr.Status.SLAStatus != "Pass" || cr.Status.TrafficIntegrity != "Fail" {
 		t.Errorf("verdicts = %s/%s, want Pass/Fail", cr.Status.SLAStatus, cr.Status.TrafficIntegrity)
 	}
-	if cr.Status.TotalRequests != 1000 || cr.Status.FailedRequests != 40 || cr.Status.FailureRate != 0.04 {
+	// 0.04 of requests failed, which is 4%, which is 400 basis points.
+	if cr.Status.TotalRequests != 1000 || cr.Status.FailedRequests != 40 || cr.Status.FailureRateBasisPoints != 400 {
 		t.Errorf("metrics not copied: %+v", cr.Status)
 	}
 }
@@ -73,7 +74,7 @@ func TestApplyReport(t *testing.T) {
 // creates can't collide with another test's observations on the same
 // package-level collector.
 func TestRecordRunMetrics_HPAReactObserved(t *testing.T) {
-	cr := &v1alpha1.ScaleValidation{
+	cr := &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{Name: "record-metrics-hpa-react", Namespace: "record-metrics-test"},
 	}
 	before := testutil.CollectAndCount(metrics.HPAReactSeconds)
@@ -91,33 +92,33 @@ func TestRecordRunMetrics_HPAReactObserved(t *testing.T) {
 }
 
 func TestAppendRunHistory(t *testing.T) {
-	newHistory := func(n int) []v1alpha1.RunSummary {
-		h := make([]v1alpha1.RunSummary, n)
+	newHistory := func(n int) []v1beta1.RunSummary {
+		h := make([]v1beta1.RunSummary, n)
 		for i := range h {
-			h[i] = v1alpha1.RunSummary{Phase: PhaseSucceeded}
+			h[i] = v1beta1.RunSummary{Phase: PhaseSucceeded}
 		}
 		return h
 	}
 
 	tests := []struct {
 		name         string
-		existing     []v1alpha1.RunSummary
+		existing     []v1beta1.RunSummary
 		wantLen      int
 		wantNewFirst bool
 	}{
 		{"empty history gets first entry", nil, 1, true},
 		{"prepends ahead of existing entries", newHistory(3), 4, true},
-		{"truncates at RunHistoryLimit", newHistory(v1alpha1.RunHistoryLimit), v1alpha1.RunHistoryLimit, true},
-		{"truncates when already over the limit", newHistory(v1alpha1.RunHistoryLimit + 5), v1alpha1.RunHistoryLimit, true},
+		{"truncates at RunHistoryLimit", newHistory(v1beta1.RunHistoryLimit), v1beta1.RunHistoryLimit, true},
+		{"truncates when already over the limit", newHistory(v1beta1.RunHistoryLimit + 5), v1beta1.RunHistoryLimit, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := &v1alpha1.ScaleValidation{Status: v1alpha1.ScaleValidationStatus{
-				Phase:            PhaseFailed,
-				SLAStatus:        "Fail",
-				TrafficIntegrity: "Pass",
-				FailureRate:      0.12,
-				History:          tt.existing,
+			cr := &v1beta1.ScaleValidation{Status: v1beta1.ScaleValidationStatus{
+				Phase:                  PhaseFailed,
+				SLAStatus:              "Fail",
+				TrafficIntegrity:       "Pass",
+				FailureRateBasisPoints: 1200,
+				History:                tt.existing,
 			}}
 			appendRunHistory(cr)
 
@@ -126,7 +127,7 @@ func TestAppendRunHistory(t *testing.T) {
 			}
 			head := cr.Status.History[0]
 			if tt.wantNewFirst && (head.Phase != PhaseFailed || head.SLAStatus != "Fail" ||
-				head.TrafficIntegrity != "Pass" || head.FailureRate != 0.12) {
+				head.TrafficIntegrity != "Pass" || head.FailureRateBasisPoints != 1200) {
 				t.Errorf("newest entry not at History[0]: %+v", head)
 			}
 			if head.FinishedAt.IsZero() {
@@ -146,16 +147,16 @@ func TestTargetGVK(t *testing.T) {
 	}{
 		{"apps deployment", "apps/v1", "Deployment", schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
 		{"apps statefulset", "apps/v1", "StatefulSet", schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"}, false},
-		{"custom group", "argoproj.io/v1alpha1", "Rollout", schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "Rollout"}, false},
+		{"custom group", "argoproj.io/v1beta1", "Rollout", schema.GroupVersionKind{Group: "argoproj.io", Version: "v1beta1", Kind: "Rollout"}, false},
 		{"empty apiVersion defaults to apps/v1", "", "Deployment", schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
 		{"empty kind", "apps/v1", "", schema.GroupVersionKind{}, true},
 		{"malformed apiVersion", "a/b/c", "Deployment", schema.GroupVersionKind{}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := &v1alpha1.ScaleValidation{
-				Spec: v1alpha1.ScaleValidationSpec{
-					TargetRef: v1alpha1.CrossVersionObjectReference{
+			cr := &v1beta1.ScaleValidation{
+				Spec: v1beta1.ScaleValidationSpec{
+					TargetRef: v1beta1.CrossVersionObjectReference{
 						APIVersion: tt.apiVersion, Kind: tt.kind, Name: "app",
 					},
 				},
@@ -182,10 +183,10 @@ func TestTargetGVK(t *testing.T) {
 // NotFound is the normal "workload not applied yet" case the readiness
 // gate keeps waiting through.
 func TestClassifyTargetError(t *testing.T) {
-	cr := &v1alpha1.ScaleValidation{
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{
-				APIVersion: "argoproj.io/v1alpha1", Kind: "Rollout", Name: "app",
+	cr := &v1beta1.ScaleValidation{
+		Spec: v1beta1.ScaleValidationSpec{
+			TargetRef: v1beta1.CrossVersionObjectReference{
+				APIVersion: "argoproj.io/v1beta1", Kind: "Rollout", Name: "app",
 			},
 		},
 	}
@@ -226,6 +227,34 @@ func TestPodReady(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := podReady(&tt.pod); got != tt.want {
 				t.Errorf("podReady = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFailureRateBasisPoints pins the one lossy conversion the v1beta1 API
+// introduced: the observer measures a float ratio, the API stores integer
+// basis points. Rounding matters at the edges, since the traffic-integrity
+// threshold sits at exactly 100 bp.
+func TestFailureRateBasisPoints(t *testing.T) {
+	tests := []struct {
+		name string
+		rate float64
+		want int32
+	}{
+		{"clean run", 0, 0},
+		{"negative is clamped", -0.5, 0},
+		{"one percent is the threshold", 0.01, 100},
+		{"everything failed", 1.0, 10000},
+		{"rounds to nearest", 0.000149, 1},
+		{"a real but tiny rate does not vanish", 0.00005, 1},
+		{"genuinely zero stays zero", 0.000001, 0},
+		{"absurd input is clamped, not wrapped", 1e12, 2147483647},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := failureRateBasisPoints(tt.rate); got != tt.want {
+				t.Errorf("failureRateBasisPoints(%v) = %d, want %d", tt.rate, got, tt.want)
 			}
 		})
 	}

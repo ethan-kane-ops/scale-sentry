@@ -38,7 +38,7 @@ just dev-down
 | `just manifests` | regenerate CRD + RBAC YAML from kubebuilder markers |
 | `just docs-serve` | generate the API reference and serve the docs site locally |
 
-Run `just generate && just manifests` after any change to `api/v1alpha1/*_types.go`.
+Run `just generate && just manifests` after any change to `api/v1beta1/*_types.go`.
 
 ## Documentation
 

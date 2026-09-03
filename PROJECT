@@ -12,5 +12,5 @@ resources:
   domain: ek.co
   group: validation.scale-sentry
   kind: ScaleValidation
-  path: github.com/ethan-kane-ops/scale-sentry/api/v1alpha1
-  version: v1alpha1
+  path: github.com/ethan-kane-ops/scale-sentry/api/v1beta1
+  version: v1beta1

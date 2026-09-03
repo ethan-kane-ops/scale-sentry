@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/metrics"
 )
 
@@ -29,7 +29,7 @@ var scheduleParser = cron.NewParser(
 
 // parseSchedule compiles spec.schedule. An empty schedule is not an error:
 // it means the validation runs exactly once, which is the default.
-func parseSchedule(cr *v1alpha1.ScaleValidation) (cron.Schedule, error) {
+func parseSchedule(cr *v1beta1.ScaleValidation) (cron.Schedule, error) {
 	if cr.Spec.Schedule == "" {
 		return nil, nil
 	}
@@ -44,7 +44,7 @@ func parseSchedule(cr *v1alpha1.ScaleValidation) (cron.Schedule, error) {
 // run started, matching CronJob, so a run that overruns does not push the
 // whole schedule out. Falls back to creation for a CR that somehow reached
 // a terminal phase without ever spawning a Job.
-func lastRunAnchor(cr *v1alpha1.ScaleValidation) time.Time {
+func lastRunAnchor(cr *v1beta1.ScaleValidation) time.Time {
 	if cr.Status.LastRunTime != nil {
 		return cr.Status.LastRunTime.Time
 	}
@@ -55,7 +55,7 @@ func lastRunAnchor(cr *v1alpha1.ScaleValidation) time.Time {
 // terminal phase. Without spec.schedule that is nothing at all, which is
 // the one-shot behaviour every existing CR relies on. With one, it either
 // parks until the next due time or starts the next run.
-func (r *ScaleValidationReconciler) reconcileTerminal(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) reconcileTerminal(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	if cr.Status.ObservedGeneration == 0 {
@@ -110,7 +110,7 @@ func (r *ScaleValidationReconciler) reconcileTerminal(ctx context.Context, cr *v
 // status, and puts the CR back to Pending so the normal spawn path picks
 // it up. The Job name is derived from the CR name, so the old one has to
 // be gone before a new one can be created.
-func (r *ScaleValidationReconciler) startNextRun(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) startNextRun(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	var job batchv1.Job
@@ -141,14 +141,14 @@ func (r *ScaleValidationReconciler) startNextRun(ctx context.Context, cr *v1alph
 // the next one reports its own results rather than inheriting the last
 // one's. status.history is deliberately kept, it is the whole point of
 // running on a schedule.
-func resetForNextRun(cr *v1alpha1.ScaleValidation) {
+func resetForNextRun(cr *v1beta1.ScaleValidation) {
 	cr.Status.Diagnostics = nil
 	cr.Status.ScaleUpDuration = nil
 	cr.Status.SLAStatus = ""
 	cr.Status.TrafficIntegrity = ""
 	cr.Status.TotalRequests = 0
 	cr.Status.FailedRequests = 0
-	cr.Status.FailureRate = 0
+	cr.Status.FailureRateBasisPoints = 0
 	cr.Status.NextRunTime = nil
 
 	// The presence of DisruptionInjected is the once-per-run chaos guard.
@@ -170,9 +170,9 @@ func resetForNextRun(cr *v1alpha1.ScaleValidation) {
 // failScheduleInvalid rejects an unparseable spec.schedule up front, on
 // the first reconcile, rather than letting the CR run once and then stall
 // silently at its first scheduling decision.
-func (r *ScaleValidationReconciler) failScheduleInvalid(ctx context.Context, cr *v1alpha1.ScaleValidation, cause error) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) failScheduleInvalid(ctx context.Context, cr *v1beta1.ScaleValidation, cause error) (ctrl.Result, error) {
 	msg := fmt.Sprintf("spec.schedule %q is not a valid cron expression: %v", cr.Spec.Schedule, cause)
-	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{
+	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1beta1.DiagnosticAlert{
 		Type:           "ScheduleInvalid",
 		Severity:       "Critical",
 		Message:        msg,
@@ -189,7 +189,7 @@ func (r *ScaleValidationReconciler) failScheduleInvalid(ctx context.Context, cr 
 // deliver, and records the generation so the edit that suspended the CR is
 // not later replayed as drift. Writes only when something actually
 // changed, so a suspended CR does not churn its status on every reconcile.
-func (r *ScaleValidationReconciler) parkSuspended(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) parkSuspended(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	changed := false
 	if cr.Status.NextRunTime != nil {
 		cr.Status.NextRunTime = nil
@@ -219,7 +219,7 @@ func (r *ScaleValidationReconciler) parkSuspended(ctx context.Context, cr *v1alp
 // Validating here is also what lets a broken schedule be fixed in place:
 // the edit bumps the generation, the new value parses, and the CR
 // recovers without being deleted and recreated.
-func (r *ScaleValidationReconciler) restartForSpecChange(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) restartForSpecChange(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	if _, err := parseSchedule(cr); err != nil {

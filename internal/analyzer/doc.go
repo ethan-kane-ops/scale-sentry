@@ -5,7 +5,7 @@
 //   - a pure data parser / state tracker with no Kubernetes API calls
 //   - a typed report struct
 //   - a Diagnostics() method that maps findings into
-//     api/v1alpha1.DiagnosticAlert values for the controller to copy onto
+//     api/v1beta1.DiagnosticAlert values for the controller to copy onto
 //     ScaleValidation.status.diagnostics.
 //
 // Keeping the K8s client out of these packages keeps them unit-testable

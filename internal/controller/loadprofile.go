@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/loadgen"
 )
 
@@ -21,7 +21,7 @@ import (
 //     measurement phase consuming the remaining SLA budget.
 //   - Profile pattern Spike decomposes into a Constant-Spike-Constant-...
 //     sequence inside the measurement window.
-func buildPhases(cr *v1alpha1.ScaleValidation) ([]loadgen.Phase, error) {
+func buildPhases(cr *v1beta1.ScaleValidation) ([]loadgen.Phase, error) {
 	load := cr.Spec.Load
 	if load.Profile == nil && (load.WarmupDuration == nil || load.WarmupDuration.Duration == 0) {
 		return nil, nil
@@ -118,7 +118,7 @@ func buildPhases(cr *v1alpha1.ScaleValidation) ([]loadgen.Phase, error) {
 // list filling [0, total). Each phase is RecordStats=true so spikes
 // contribute to the verdict. The returned slice is empty only when
 // total <= 0.
-func decomposeSpike(baseRPS int, total time.Duration, spikes []v1alpha1.SpikeWindow) ([]loadgen.Phase, error) {
+func decomposeSpike(baseRPS int, total time.Duration, spikes []v1beta1.SpikeWindow) ([]loadgen.Phase, error) {
 	if len(spikes) == 0 {
 		return nil, fmt.Errorf("spec.load.profile.spikes required when pattern=Spike")
 	}

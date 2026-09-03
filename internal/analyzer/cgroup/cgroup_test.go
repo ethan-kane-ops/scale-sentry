@@ -1,6 +1,7 @@
 package cgroup
 
 import (
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,7 +149,7 @@ func TestDiagnosticsSeverityBands(t *testing.T) {
 		name         string
 		periods      uint64
 		throttled    uint64
-		wantSeverity string
+		wantSeverity v1beta1.Severity
 		wantAlerts   int
 	}{
 		{"no throttling, no alert", 100, 0, "", 0},

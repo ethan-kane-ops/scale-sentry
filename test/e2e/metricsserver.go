@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	apiregv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	"k8s.io/apimachinery/pkg/types"
+	apiregv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

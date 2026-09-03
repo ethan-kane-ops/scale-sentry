@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,8 +18,7 @@ type CrossVersionObjectReference struct {
 // TargetConfig describes the HTTP endpoint and network path to test.
 type TargetConfig struct {
 	// Mode determines how the load test target is resolved.
-	// +kubebuilder:validation:Enum=ServiceDefault;AutoDiscoverProbe;CustomPath
-	Mode string `json:"mode"`
+	Mode TargetMode `json:"mode"`
 
 	// CustomPath is the explicit HTTP path to target. Used when mode is CustomPath.
 	// +optional
@@ -34,9 +33,8 @@ type TargetConfig struct {
 	// path, prefer Gateway for new deployments). Gateway sends traffic
 	// through a Gateway API edge (Envoy Gateway and friends). Only one
 	// pathway runs per validation to isolate variables.
-	// +kubebuilder:validation:Enum=ClusterIP;Ingress;Gateway
 	// +kubebuilder:default=ClusterIP
-	NetworkPath string `json:"networkPath"`
+	NetworkPath NetworkPath `json:"networkPath"`
 
 	// Host overrides the URL host the loadgen Job hits. Empty (default)
 	// resolves to "<targetRef.name>.<namespace>.svc.cluster.local",
@@ -54,10 +52,9 @@ type TargetConfig struct {
 	// to invoke the standard grpc.health.v1.Health/Check probe; combine
 	// with the optional GRPC block to scope the probe to a specific
 	// upstream service.
-	// +kubebuilder:validation:Enum=HTTP1;HTTP2;GRPC
 	// +kubebuilder:default=HTTP1
 	// +optional
-	Protocol string `json:"protocol,omitempty"`
+	Protocol Protocol `json:"protocol,omitempty"`
 
 	// GRPC carries gRPC-specific knobs. Only consulted when Protocol=GRPC;
 	// ignored otherwise. Empty (or unset) means probe overall server
@@ -146,9 +143,8 @@ type LoadConfig struct {
 // Pattern-specific knobs apply only to their named pattern.
 type LoadProfile struct {
 	// Pattern is the arrival shape.
-	// +kubebuilder:validation:Enum=Constant;Poisson;Ramp;Step;Spike
 	// +kubebuilder:default=Constant
-	Pattern string `json:"pattern"`
+	Pattern LoadPattern `json:"pattern"`
 
 	// EndRPS is the terminal rate for Ramp. Required when Pattern=Ramp.
 	// +optional
@@ -253,8 +249,7 @@ type DiagnosticAlert struct {
 	// Type categorises the alert (e.g. "ProbeLeakage", "CPUThrottling").
 	Type string `json:"type"`
 	// Severity is one of Info, Warning, or Critical.
-	// +kubebuilder:validation:Enum=Info;Warning;Critical
-	Severity string `json:"severity"`
+	Severity Severity `json:"severity"`
 	// Message is a human-readable description of the finding.
 	Message string `json:"message"`
 	// Recommendation is the suggested remediation.
@@ -279,34 +274,30 @@ type RunSummary struct {
 	// FinishedAt is when this run reached a terminal phase.
 	FinishedAt metav1.Time `json:"finishedAt"`
 	// Phase is the terminal phase this run reached (Succeeded or Failed).
-	Phase string `json:"phase"`
+	Phase Phase `json:"phase"`
 	// SLAStatus mirrors the top-level status.slaStatus at run completion.
-	// +kubebuilder:validation:Enum=Pass;Fail;Unknown
-	SLAStatus string `json:"slaStatus,omitempty"`
+	SLAStatus Verdict `json:"slaStatus,omitempty"`
 	// TrafficIntegrity mirrors the top-level status.trafficIntegrity at run completion.
-	// +kubebuilder:validation:Enum=Pass;Fail;Unknown
-	TrafficIntegrity string `json:"trafficIntegrity,omitempty"`
-	// FailureRate mirrors the top-level status.failureRate at run completion.
-	FailureRate float64 `json:"failureRate,omitempty"`
+	TrafficIntegrity Verdict `json:"trafficIntegrity,omitempty"`
+	// FailureRateBasisPoints mirrors the top-level
+	// status.failureRateBasisPoints at run completion.
+	FailureRateBasisPoints int32 `json:"failureRateBasisPoints,omitempty"`
 }
 
 // ScaleValidationStatus defines the observed state of a ScaleValidation run.
 type ScaleValidationStatus struct {
 	// Phase represents the current lifecycle state.
-	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Error;Terminating
-	Phase string `json:"phase,omitempty"`
+	Phase Phase `json:"phase,omitempty"`
 
 	// ScaleUpDuration is the measured time from HPA trigger to all replicas ready.
 	// +optional
 	ScaleUpDuration *metav1.Duration `json:"scaleUpDuration,omitempty"`
 
 	// SLAStatus indicates whether the scaling met the configured SLA.
-	// +kubebuilder:validation:Enum=Pass;Fail;Unknown
-	SLAStatus string `json:"slaStatus,omitempty"`
+	SLAStatus Verdict `json:"slaStatus,omitempty"`
 
 	// TrafficIntegrity indicates whether any requests were dropped.
-	// +kubebuilder:validation:Enum=Pass;Fail;Unknown
-	TrafficIntegrity string `json:"trafficIntegrity,omitempty"`
+	TrafficIntegrity Verdict `json:"trafficIntegrity,omitempty"`
 
 	// TotalRequests is the total number of HTTP requests sent during the run.
 	TotalRequests int64 `json:"totalRequests,omitempty"`
@@ -314,8 +305,11 @@ type ScaleValidationStatus struct {
 	// FailedRequests is the number of HTTP requests that returned errors.
 	FailedRequests int64 `json:"failedRequests,omitempty"`
 
-	// FailureRate is the ratio of failed to total requests (e.g. 0.0066 = 0.66%).
-	FailureRate float64 `json:"failureRate,omitempty"`
+	// FailureRateBasisPoints is the ratio of failed to total requests in
+	// basis points: 1 bp is 0.01%, so 66 is 0.66% and the 1% traffic
+	// threshold is 100. An integer because the Kubernetes API convention
+	// rejects floats, which do not round-trip reliably across clients.
+	FailureRateBasisPoints int32 `json:"failureRateBasisPoints,omitempty"`
 
 	// Diagnostics contains the list of analysis findings.
 	// +optional
@@ -381,3 +375,92 @@ type ScaleValidationList struct {
 func init() {
 	SchemeBuilder.Register(&ScaleValidation{}, &ScaleValidationList{})
 }
+
+// Named types for the API's closed value sets. The wire format is
+// unchanged, every one is a string underneath, but a named type stops the
+// controller comparing a status field against a bare literal and getting
+// away with a typo.
+
+// TargetMode selects how the load generator resolves an endpoint.
+// +kubebuilder:validation:Enum=ServiceDefault;AutoDiscoverProbe;CustomPath
+type TargetMode string
+
+const (
+	TargetModeServiceDefault    TargetMode = "ServiceDefault"
+	TargetModeAutoDiscoverProbe TargetMode = "AutoDiscoverProbe"
+	TargetModeCustomPath        TargetMode = "CustomPath"
+)
+
+// NetworkPath selects where traffic enters, which is what isolates an
+// in-cluster scaling problem from an edge one.
+// +kubebuilder:validation:Enum=ClusterIP;Ingress;Gateway
+type NetworkPath string
+
+const (
+	NetworkPathClusterIP NetworkPath = "ClusterIP"
+	NetworkPathIngress   NetworkPath = "Ingress"
+	NetworkPathGateway   NetworkPath = "Gateway"
+)
+
+// Protocol is the wire protocol the load generator speaks.
+// +kubebuilder:validation:Enum=HTTP1;HTTP2;GRPC
+type Protocol string
+
+const (
+	ProtocolHTTP1 Protocol = "HTTP1"
+	ProtocolHTTP2 Protocol = "HTTP2"
+	ProtocolGRPC  Protocol = "GRPC"
+)
+
+// LoadPattern is the shape of the generated request rate over time.
+// +kubebuilder:validation:Enum=Constant;Poisson;Ramp;Step;Spike
+type LoadPattern string
+
+const (
+	LoadPatternConstant LoadPattern = "Constant"
+	LoadPatternPoisson  LoadPattern = "Poisson"
+	LoadPatternRamp     LoadPattern = "Ramp"
+	LoadPatternStep     LoadPattern = "Step"
+	LoadPatternSpike    LoadPattern = "Spike"
+)
+
+// Severity bands a DiagnosticAlert. Critical means the run could not
+// produce a trustworthy verdict; Warning means it did, with a caveat.
+// +kubebuilder:validation:Enum=Info;Warning;Critical
+type Severity string
+
+const (
+	SeverityInfo     Severity = "Info"
+	SeverityWarning  Severity = "Warning"
+	SeverityCritical Severity = "Critical"
+)
+
+// Verdict is a pass/fail judgement. Unknown means the run could not
+// measure the thing, which is deliberately not the same as failing it.
+// +kubebuilder:validation:Enum=Pass;Fail;Unknown
+type Verdict string
+
+const (
+	VerdictPass    Verdict = "Pass"
+	VerdictFail    Verdict = "Fail"
+	VerdictUnknown Verdict = "Unknown"
+)
+
+// Phase is the lifecycle state of a validation run. Pending and Running
+// are transient; Succeeded, Failed and Error are terminal; Terminating is
+// the deletion path.
+// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Error;Terminating
+type Phase string
+
+const (
+	PhasePending     Phase = "Pending"
+	PhaseRunning     Phase = "Running"
+	PhaseSucceeded   Phase = "Succeeded"
+	PhaseFailed      Phase = "Failed"
+	PhaseError       Phase = "Error"
+	PhaseTerminating Phase = "Terminating"
+)
+
+// FailureRateScale is the denominator of the basis-point failure rate
+// fields: 10000 basis points is 100%, so one basis point is 0.01%.
+const FailureRateScale = 10000

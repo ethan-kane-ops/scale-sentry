@@ -23,9 +23,9 @@ const (
 	// every request, so CPU usage scales linearly with RPS. Off-the-shelf
 	// HTTP servers (nginx / echo / whoami) consume nearly no CPU under
 	// load and will not trigger the HPA at all.
-	targetImage    = "registry.k8s.io/hpa-example"
-	targetPort     = int32(80)
-	targetCPUReq   = "200m"
+	targetImage  = "registry.k8s.io/hpa-example"
+	targetPort   = int32(80)
+	targetCPUReq = "200m"
 	// hpa-example sits around 40-60 MiB resident; without an explicit
 	// request the kubelet will OOMKill pods opportunistically under
 	// node memory pressure (which the laptop-sized Kind VM is prone

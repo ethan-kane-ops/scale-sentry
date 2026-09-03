@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/chaos"
 )
 
@@ -38,7 +38,7 @@ const (
 // pods and either deletes the victim or records the skip. The decision is
 // deliberately single-shot: retrying a skipped injection until enough
 // replicas appear would turn the safety gate into a race.
-func (r *ScaleValidationReconciler) maybeInjectDisruption(ctx context.Context, cr *v1alpha1.ScaleValidation) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) maybeInjectDisruption(ctx context.Context, cr *v1beta1.ScaleValidation) (ctrl.Result, error) {
 	d := cr.Spec.Disruption
 	if d == nil || !d.InjectPodDeletion || cr.Status.Phase != PhaseRunning {
 		return ctrl.Result{}, nil
@@ -93,7 +93,7 @@ func (r *ScaleValidationReconciler) maybeInjectDisruption(ctx context.Context, c
 // targetPods lists the pods backing the CR's target Deployment via the
 // Deployment's own label selector, so victim selection sees exactly the
 // replica set the HPA manages (never the loadgen Job pod).
-func (r *ScaleValidationReconciler) targetPods(ctx context.Context, cr *v1alpha1.ScaleValidation) ([]corev1.Pod, error) {
+func (r *ScaleValidationReconciler) targetPods(ctx context.Context, cr *v1beta1.ScaleValidation) ([]corev1.Pod, error) {
 	var deploy appsv1.Deployment
 	key := types.NamespacedName{Namespace: cr.Namespace, Name: cr.Spec.TargetRef.Name}
 	if err := r.Get(ctx, key, &deploy); err != nil {
@@ -111,7 +111,7 @@ func (r *ScaleValidationReconciler) targetPods(ctx context.Context, cr *v1alpha1
 }
 
 // recordDisruption persists the disruption decision as a status condition.
-func (r *ScaleValidationReconciler) recordDisruption(ctx context.Context, cr *v1alpha1.ScaleValidation, status metav1.ConditionStatus, reason, msg string) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) recordDisruption(ctx context.Context, cr *v1beta1.ScaleValidation, status metav1.ConditionStatus, reason, msg string) (ctrl.Result, error) {
 	meta.SetStatusCondition(&cr.Status.Conditions, metav1.Condition{
 		Type:               ConditionDisruptionInjected,
 		Status:             status,

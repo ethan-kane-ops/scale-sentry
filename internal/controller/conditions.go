@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/observer"
 )
 
@@ -58,7 +58,7 @@ const (
 // keeping them in one place is what makes the drift check in
 // reconcileTerminal reliable: every path that ends a run marks the
 // generation, and none can forget to.
-func markFinished(cr *v1alpha1.ScaleValidation, reason, message string) {
+func markFinished(cr *v1beta1.ScaleValidation, reason, message string) {
 	cr.Status.ObservedGeneration = cr.Generation
 	meta.SetStatusCondition(&cr.Status.Conditions, metav1.Condition{
 		Type:               ConditionFinished,
@@ -72,14 +72,14 @@ func markFinished(cr *v1alpha1.ScaleValidation, reason, message string) {
 // setTerminalPhase stages the Finished condition and the terminal phase,
 // then writes both in a single status update so a watcher never observes
 // a terminal phase without the condition that explains it.
-func (r *ScaleValidationReconciler) setTerminalPhase(ctx context.Context, cr *v1alpha1.ScaleValidation, phase, reason, message string) (ctrl.Result, error) {
+func (r *ScaleValidationReconciler) setTerminalPhase(ctx context.Context, cr *v1beta1.ScaleValidation, phase v1beta1.Phase, reason, message string) (ctrl.Result, error) {
 	markFinished(cr, reason, message)
 	return r.setPhase(ctx, cr, phase)
 }
 
 // finishedVerdict maps an observer verdict onto the terminal phase and the
 // Finished reason + message that describe it.
-func finishedVerdict(slaStatus, trafficIntegrity string, totalRequests, failedRequests int64) (phase, reason, message string) {
+func finishedVerdict(slaStatus, trafficIntegrity v1beta1.Verdict, totalRequests, failedRequests int64) (phase v1beta1.Phase, reason, message string) {
 	summary := fmt.Sprintf("SLA=%s traffic=%s requests=%d failed=%d",
 		slaStatus, trafficIntegrity, totalRequests, failedRequests)
 	if slaStatus == observer.VerdictFail || trafficIntegrity == observer.VerdictFail {

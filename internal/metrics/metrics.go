@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	// VerdictPass / Warn / Fail / Unknown classify a finished run. The
-	// strings match what gets written to ScaleValidation.status.slaStatus
-	// and traffic-integrity verdicts so dashboards line up with the CR.
+	// VerdictPass / Warn / Fail / Unknown classify a finished run. These
+	// are Prometheus label values, lower-case by convention, and are a
+	// deliberately separate vocabulary from the API's Verdict enum: they
+	// add "warn", which the CRD has no equivalent for.
 	VerdictPass    = "pass"
 	VerdictWarn    = "warn"
 	VerdictFail    = "fail"

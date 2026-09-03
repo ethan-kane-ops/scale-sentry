@@ -6,7 +6,7 @@ Next steps:
      kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "scale-sentry.fullname" . }}-controller
 
 2. Apply a sample ScaleValidation:
-     kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/samples/scale-sentry_v1alpha1_scalevalidation.yaml
+     kubectl apply -f https://raw.githubusercontent.com/ethan-kane-ops/scale-sentry/main/config/samples/scale-sentry_v1beta1_scalevalidation.yaml
 
 3. Watch the run:
      kubectl get scalevalidations -A -w

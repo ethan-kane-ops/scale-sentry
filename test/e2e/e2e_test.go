@@ -21,7 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 const (
@@ -66,21 +66,21 @@ func TestE2E_FullVerdict(t *testing.T) {
 		t.Fatalf("HPA never got CPU metrics: %v", err)
 	}
 
-	cr := &v1alpha1.ScaleValidation{
+	cr := &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{Name: "fullverdict", Namespace: ns.Name},
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{
+		Spec: v1beta1.ScaleValidationSpec{
+			TargetRef: v1beta1.CrossVersionObjectReference{
 				APIVersion: "apps/v1", Kind: "Deployment", Name: "target",
 			},
 			SLA:    metav1.Duration{Duration: sla},
-			Target: v1alpha1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
+			Target: v1beta1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
 			// hpa-example does ~50ms of CPU per request (PHP sqrt loop).
 			// 1 replica at 200m sustains ~4 RPS at 100% CPU. At 10-14
 			// RPS the HPA settles around 3-4 replicas, well above the
 			// scale-out trigger but below maxReplicas=5. ConcurrencyFactor=1
 			// keeps the per-core uplift predictable across CI runners
 			// and laptops (no scheduler stampede on under-provisioned VMs).
-			Load: v1alpha1.LoadConfig{BaseRPS: 10, ConcurrencyFactor: 1},
+			Load: v1beta1.LoadConfig{BaseRPS: 10, ConcurrencyFactor: 1},
 		},
 	}
 	mustCreate(t, c, ctx, cr)

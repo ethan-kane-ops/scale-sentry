@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 var (
@@ -28,7 +28,7 @@ var (
 )
 
 // severityRank orders alerts Critical → Warning → Info → unknown.
-func severityRank(s string) int {
+func severityRank(s v1beta1.Severity) int {
 	switch s {
 	case "Critical":
 		return 0
@@ -41,7 +41,7 @@ func severityRank(s string) int {
 	}
 }
 
-func styleFor(severity string) lipgloss.Style {
+func styleFor(severity v1beta1.Severity) lipgloss.Style {
 	switch severity {
 	case "Critical":
 		return criticalStyle
@@ -55,7 +55,7 @@ func styleFor(severity string) lipgloss.Style {
 // Render produces the static dashboard string from a set of alerts.
 // Safe to call without a TTY, Lip Gloss degrades to plain text when the
 // output is not a terminal.
-func Render(alerts []v1alpha1.DiagnosticAlert) string {
+func Render(alerts []v1beta1.DiagnosticAlert) string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("scale-sentry · diagnostic report"))
 	b.WriteString("\n\n")
@@ -84,7 +84,7 @@ func Render(alerts []v1alpha1.DiagnosticAlert) string {
 	)
 
 	// Stable sort: severity first, original order preserved within a band.
-	ordered := make([]v1alpha1.DiagnosticAlert, len(alerts))
+	ordered := make([]v1beta1.DiagnosticAlert, len(alerts))
 	copy(ordered, alerts)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return severityRank(ordered[i].Severity) < severityRank(ordered[j].Severity)
@@ -97,10 +97,10 @@ func Render(alerts []v1alpha1.DiagnosticAlert) string {
 	return b.String()
 }
 
-func renderAlert(a v1alpha1.DiagnosticAlert) string {
+func renderAlert(a v1beta1.DiagnosticAlert) string {
 	style := styleFor(a.Severity)
 	var b strings.Builder
-	b.WriteString(style.Render(fmt.Sprintf("[%s] %s", strings.ToUpper(a.Severity), a.Type)))
+	b.WriteString(style.Render(fmt.Sprintf("[%s] %s", strings.ToUpper(string(a.Severity)), a.Type)))
 	b.WriteString("\n  ")
 	b.WriteString(a.Message)
 	if a.Recommendation != "" {
@@ -114,11 +114,11 @@ func renderAlert(a v1alpha1.DiagnosticAlert) string {
 // Model is the Bubble Tea model wrapping the diagnostic dashboard. It is a
 // read-only view: any key quits.
 type Model struct {
-	alerts []v1alpha1.DiagnosticAlert
+	alerts []v1beta1.DiagnosticAlert
 }
 
 // NewModel constructs a Model over the given alerts.
-func NewModel(alerts []v1alpha1.DiagnosticAlert) Model {
+func NewModel(alerts []v1beta1.DiagnosticAlert) Model {
 	return Model{alerts: alerts}
 }
 

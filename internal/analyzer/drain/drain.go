@@ -21,7 +21,7 @@ import (
 	"sort"
 	"time"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/leakage"
 )
 
@@ -136,15 +136,15 @@ func totalWindow(samples []leakage.ErrorSample) time.Duration {
 
 // Diagnostics emits an UngracefulDrain alert when dropped requests were
 // observed. Severity escalates to Critical past criticalDroppedCount.
-func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
+func (r Report) Diagnostics() []v1beta1.DiagnosticAlert {
 	if r.DroppedRequests == 0 {
 		return nil
 	}
-	severity := "Warning"
+	severity := v1beta1.SeverityWarning
 	if r.DroppedRequests >= criticalDroppedCount {
-		severity = "Critical"
+		severity = v1beta1.SeverityCritical
 	}
-	return []v1alpha1.DiagnosticAlert{{
+	return []v1beta1.DiagnosticAlert{{
 		Type:     "UngracefulDrain",
 		Severity: severity,
 		Message: fmt.Sprintf(

@@ -30,9 +30,8 @@ tools:
     echo "✅ tools installed"
 
 # Generate CRD + RBAC manifests from kubebuilder markers.
-# allowDangerousTypes=true permits float64 in status.failureRate (ratio).
 manifests: tools
-    controller-gen rbac:roleName=manager-role crd:allowDangerousTypes=true paths="./..." \
+    controller-gen rbac:roleName=manager-role crd paths="./..." \
         output:crd:artifacts:config=config/crd/bases \
         output:rbac:artifacts:config=config/rbac
 
@@ -287,7 +286,7 @@ release bump="auto":
 docs-api:
     mkdir -p docs/reference
     go run github.com/elastic/crd-ref-docs@{{crd_ref_docs_version}} \
-        --source-path=./api/v1alpha1 \
+        --source-path=./api/v1beta1 \
         --config=.crd-ref-docs.yaml \
         --renderer=markdown \
         --output-path=docs/reference/api.md

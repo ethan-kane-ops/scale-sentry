@@ -20,21 +20,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
-func testCR(mod func(*v1alpha1.ScaleValidation)) *v1alpha1.ScaleValidation {
-	cr := &v1alpha1.ScaleValidation{
+func testCR(mod func(*v1beta1.ScaleValidation)) *v1beta1.ScaleValidation {
+	cr := &v1beta1.ScaleValidation{
 		ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "demo"},
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{
+		Spec: v1beta1.ScaleValidationSpec{
+			TargetRef: v1beta1.CrossVersionObjectReference{
 				APIVersion: "apps/v1", Kind: "Deployment", Name: "app",
 			},
 			SLA: metav1.Duration{Duration: 3 * time.Minute},
-			Target: v1alpha1.TargetConfig{
+			Target: v1beta1.TargetConfig{
 				Mode: "ServiceDefault", Port: 8080, NetworkPath: "ClusterIP",
 			},
-			Load: v1alpha1.LoadConfig{BaseRPS: 150, ConcurrencyFactor: 10},
+			Load: v1beta1.LoadConfig{BaseRPS: 150, ConcurrencyFactor: 10},
 		},
 	}
 	if mod != nil {
@@ -79,7 +79,7 @@ func TestResolveTargetURL_SpecModes(t *testing.T) {
 
 	tests := []struct {
 		name string
-		mod  func(*v1alpha1.ScaleValidation)
+		mod  func(*v1beta1.ScaleValidation)
 		want string
 	}{
 		{
@@ -89,7 +89,7 @@ func TestResolveTargetURL_SpecModes(t *testing.T) {
 		},
 		{
 			name: "custom path is honored",
-			mod: func(cr *v1alpha1.ScaleValidation) {
+			mod: func(cr *v1beta1.ScaleValidation) {
 				cr.Spec.Target.Mode = "CustomPath"
 				cr.Spec.Target.CustomPath = "/healthz"
 			},
@@ -134,7 +134,7 @@ func TestResolveTargetURL_AutoDiscoverProbe(t *testing.T) {
 	r := testReconciler(deploy)
 	_ = scheme
 
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
 	})
 	got, err := r.resolveTargetURL(context.Background(), cr)
@@ -160,7 +160,7 @@ func TestResolveTargetURL_AutoDiscoverProbeMissing(t *testing.T) {
 	}
 	r := testReconciler(deploy)
 	_ = scheme
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
 	})
 	if _, err := r.resolveTargetURL(context.Background(), cr); err == nil {
@@ -179,7 +179,7 @@ func TestResolveTargetURL_AutoDiscoverProbeNoContainers(t *testing.T) {
 		},
 	}
 	r := testReconciler(deploy)
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
 	})
 	_, err := r.resolveTargetURL(context.Background(), cr)
@@ -215,8 +215,8 @@ func TestLoadgenArgs(t *testing.T) {
 }
 
 func TestLoadgenArgs_TLSInsecureSkipVerify(t *testing.T) {
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{InsecureSkipVerify: true}
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1beta1.TLSConfig{InsecureSkipVerify: true}
 	})
 	args, err := loadgenArgs(cr, "https://app.demo.svc.cluster.local:8443/", "")
 	if err != nil {
@@ -228,10 +228,10 @@ func TestLoadgenArgs_TLSInsecureSkipVerify(t *testing.T) {
 }
 
 func TestLoadgenArgs_TLSCABundle(t *testing.T) {
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
-			CABundle: &v1alpha1.CABundleSource{
-				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1beta1.TLSConfig{
+			CABundle: &v1beta1.CABundleSource{
+				ConfigMapRef: v1beta1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
 			},
 		}
 	})
@@ -245,7 +245,7 @@ func TestLoadgenArgs_TLSCABundle(t *testing.T) {
 }
 
 func TestLoadgenArgs_Protocol(t *testing.T) {
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.Target.Protocol = "HTTP2"
 	})
 	args, err := loadgenArgs(cr, "http://app.demo.svc.cluster.local:8080/", "")
@@ -312,7 +312,7 @@ func TestObserverArgs(t *testing.T) {
 // spec.targetRef.kind used to be ignored entirely, so a StatefulSet target
 // silently produced a Deployment lookup in the observer.
 func TestObserverArgs_StatefulSetTarget(t *testing.T) {
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
 		cr.Spec.TargetRef.Kind = "StatefulSet"
 	})
 	args, err := testReconciler().observerArgs(cr)
@@ -328,8 +328,8 @@ func TestObserverArgs_StatefulSetTarget(t *testing.T) {
 }
 
 func TestObserverArgs_UnknownKindIsUnresolvable(t *testing.T) {
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.TargetRef.APIVersion = "argoproj.io/v1alpha1"
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.TargetRef.APIVersion = "argoproj.io/v1beta1"
 		cr.Spec.TargetRef.Kind = "Rollout"
 	})
 	_, err := testReconciler().observerArgs(cr)
@@ -490,10 +490,10 @@ func TestBuildLoadgenJob_TLSCABundleMount(t *testing.T) {
 	r.LoadgenImage = "registry.test/loadgen:v1"
 	r.ObserverImage = "registry.test/observer:v1"
 	r.ObserverServiceAccount = "scale-sentry-observer"
-	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
-		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
-			CABundle: &v1alpha1.CABundleSource{
-				ConfigMapRef: v1alpha1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Target.TLS = &v1beta1.TLSConfig{
+			CABundle: &v1beta1.CABundleSource{
+				ConfigMapRef: v1beta1.ConfigMapKeyRef{Name: "internal-ca", Key: "ca.crt"},
 			},
 		}
 	})

@@ -59,7 +59,7 @@ Read the full verdict off the status subresource:
 kubectl get scalevalidation podinfo-default -o yaml
 ```
 
-Key status fields: `phase` (Pending / Running / Succeeded / Failed / Error / Terminating), `slaStatus` and `trafficIntegrity` (Pass / Fail / Unknown), `scaleUpDuration` (measured HPA reaction), `totalRequests` / `failedRequests` / `failureRate`, `diagnostics` (the analyzer findings, each with an alert name and severity), and `history` (the last ten terminal verdicts, newest first, so trend is visible without a metrics stack). `conditions` carries `Finished`, set True the moment a run reaches any terminal phase, which is what makes `kubectl wait --for=condition=Finished` a usable CI gate (see [Gate a Pipeline on a Verdict](guides/ci-gate.md)). The [Events](events.md) page maps every lifecycle transition; [Observability](observability.md) covers the matching Prometheus metrics.
+Key status fields: `phase` (Pending / Running / Succeeded / Failed / Error / Terminating), `slaStatus` and `trafficIntegrity` (Pass / Fail / Unknown), `scaleUpDuration` (measured HPA reaction), `totalRequests` / `failedRequests` / `failureRateBasisPoints` (1 bp = 0.01%, so 100 is 1%), `diagnostics` (the analyzer findings, each with an alert name and severity), and `history` (the last ten terminal verdicts, newest first, so trend is visible without a metrics stack). `conditions` carries `Finished`, set True the moment a run reaches any terminal phase, which is what makes `kubectl wait --for=condition=Finished` a usable CI gate (see [Gate a Pipeline on a Verdict](guides/ci-gate.md)). The [Events](events.md) page maps every lifecycle transition; [Observability](observability.md) covers the matching Prometheus metrics.
 
 ## Sample library
 

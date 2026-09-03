@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // MatchedPDB is a PodDisruptionBudget whose selector matches the workload.
@@ -84,10 +84,10 @@ func blocksAll(spec policyv1.PodDisruptionBudgetSpec, replicas int32) bool {
 // Diagnostics emits a MissingPDB alert when nothing selects the workload,
 // plus a PDBBlocksEviction alert for each matching PDB that forbids all
 // voluntary eviction.
-func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
-	var alerts []v1alpha1.DiagnosticAlert
+func (r Report) Diagnostics() []v1beta1.DiagnosticAlert {
+	var alerts []v1beta1.DiagnosticAlert
 	if !r.Covered() {
-		alerts = append(alerts, v1alpha1.DiagnosticAlert{
+		alerts = append(alerts, v1beta1.DiagnosticAlert{
 			Type:           "MissingPDB",
 			Severity:       "Warning",
 			Message:        "no PodDisruptionBudget selects this workload, a node drain or cluster upgrade can evict every replica simultaneously",
@@ -96,7 +96,7 @@ func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
 	}
 	for _, m := range r.MatchingPDBs {
 		if m.BlocksAllDisruption {
-			alerts = append(alerts, v1alpha1.DiagnosticAlert{
+			alerts = append(alerts, v1beta1.DiagnosticAlert{
 				Type:           "PDBBlocksEviction",
 				Severity:       "Warning",
 				Message:        fmt.Sprintf("PodDisruptionBudget %q permits zero voluntary evictions at %d replica(s), node drains will hang indefinitely", m.Name, r.Replicas),

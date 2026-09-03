@@ -19,7 +19,7 @@ import (
 	"sort"
 	"time"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 // EventKind distinguishes endpoint lifecycle transitions.
@@ -160,15 +160,15 @@ func totalWindow(samples []ErrorSample) time.Duration {
 
 // Diagnostics emits a ColdStartLeakage alert when leaked requests were
 // observed. Severity escalates to Critical past criticalLeakedCount.
-func (r Report) Diagnostics() []v1alpha1.DiagnosticAlert {
+func (r Report) Diagnostics() []v1beta1.DiagnosticAlert {
 	if r.LeakedRequests == 0 {
 		return nil
 	}
-	severity := "Warning"
+	severity := v1beta1.SeverityWarning
 	if r.LeakedRequests >= criticalLeakedCount {
-		severity = "Critical"
+		severity = v1beta1.SeverityCritical
 	}
-	return []v1alpha1.DiagnosticAlert{{
+	return []v1beta1.DiagnosticAlert{{
 		Type:     "ColdStartLeakage",
 		Severity: severity,
 		Message: fmt.Sprintf(

@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 func TestRender_Empty(t *testing.T) {
@@ -17,7 +17,7 @@ func TestRender_Empty(t *testing.T) {
 }
 
 func TestRender_IncludesAlertContent(t *testing.T) {
-	alerts := []v1alpha1.DiagnosticAlert{
+	alerts := []v1beta1.DiagnosticAlert{
 		{Type: "CPUThrottling", Severity: "Critical", Message: "throttled hard", Recommendation: "raise the limit"},
 		{Type: "MissingPDB", Severity: "Warning", Message: "no budget"},
 	}
@@ -36,7 +36,7 @@ func TestRender_IncludesAlertContent(t *testing.T) {
 }
 
 func TestRender_SeverityOrdering(t *testing.T) {
-	alerts := []v1alpha1.DiagnosticAlert{
+	alerts := []v1beta1.DiagnosticAlert{
 		{Type: "InfoOne", Severity: "Info", Message: "i"},
 		{Type: "CritOne", Severity: "Critical", Message: "c"},
 		{Type: "WarnOne", Severity: "Warning", Message: "w"},
@@ -75,7 +75,7 @@ func TestModel_QuitsOnKey(t *testing.T) {
 }
 
 func TestModel_ViewDelegatesToRender(t *testing.T) {
-	alerts := []v1alpha1.DiagnosticAlert{
+	alerts := []v1beta1.DiagnosticAlert{
 		{Type: "DNSNdotsHigh", Severity: "Warning", Message: "ndots"},
 	}
 	v := NewModel(alerts).View()

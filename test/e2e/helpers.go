@@ -18,7 +18,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 const pollInterval = 3 * time.Second
@@ -46,7 +46,7 @@ func mustScheme(t *testing.T) *runtime.Scheme {
 	if err := autoscalingv2.AddToScheme(scheme); err != nil {
 		t.Fatalf("add autoscaling scheme: %v", err)
 	}
-	if err := v1alpha1.AddToScheme(scheme); err != nil {
+	if err := v1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add scale-sentry scheme: %v", err)
 	}
 	return scheme
@@ -111,15 +111,15 @@ func waitForDeploymentReady(ctx context.Context, c client.Client, ns, name strin
 
 // waitForTerminalPhase polls the CR's status.phase until it reaches one of
 // the terminal values (Succeeded / Failed / Error) or timeout elapses.
-func waitForTerminalPhase(ctx context.Context, c client.Client, ns, name string, timeout time.Duration) (string, error) {
+func waitForTerminalPhase(ctx context.Context, c client.Client, ns, name string, timeout time.Duration) (v1beta1.Phase, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		var cr v1alpha1.ScaleValidation
+		var cr v1beta1.ScaleValidation
 		if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &cr); err != nil {
 			return "", err
 		}
 		switch cr.Status.Phase {
-		case "Succeeded", "Failed", "Error":
+		case v1beta1.PhaseSucceeded, v1beta1.PhaseFailed, v1beta1.PhaseError:
 			return cr.Status.Phase, nil
 		}
 		time.Sleep(pollInterval)
@@ -127,9 +127,9 @@ func waitForTerminalPhase(ctx context.Context, c client.Client, ns, name string,
 	return "", context.DeadlineExceeded
 }
 
-func getCR(t *testing.T, c client.Client, ns, name string) *v1alpha1.ScaleValidation {
+func getCR(t *testing.T, c client.Client, ns, name string) *v1beta1.ScaleValidation {
 	t.Helper()
-	var cr v1alpha1.ScaleValidation
+	var cr v1beta1.ScaleValidation
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, &cr); err != nil {
 		t.Fatalf("get CR: %v", err)
 	}

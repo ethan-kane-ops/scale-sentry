@@ -15,6 +15,6 @@ comment:
   require_changes: true
 
 ignore:
-  - "api/v1alpha1/zz_generated.deepcopy.go"
+  - "api/v1beta1/zz_generated.deepcopy.go"
   - "**/*_test.go"
   - "test/**"

@@ -5,7 +5,7 @@ The `ScaleValidation` Custom Resource is the single source of truth for a valida
 ## Full example
 
 ```yaml
-apiVersion: validation.scale-sentry.ek.co/v1alpha1
+apiVersion: validation.scale-sentry.ek.co/v1beta1
 kind: ScaleValidation
 metadata:
   name: billing-service-validation

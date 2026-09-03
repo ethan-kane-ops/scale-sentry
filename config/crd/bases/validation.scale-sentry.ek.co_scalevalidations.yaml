@@ -33,7 +33,7 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    name: v1alpha1
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: ScaleValidation is the Schema for the scalevalidations API.
@@ -443,10 +443,14 @@ spec:
                   errors.
                 format: int64
                 type: integer
-              failureRate:
-                description: FailureRate is the ratio of failed to total requests
-                  (e.g. 0.0066 = 0.66%).
-                type: number
+              failureRateBasisPoints:
+                description: |-
+                  FailureRateBasisPoints is the ratio of failed to total requests in
+                  basis points: 1 bp is 0.01%, so 66 is 0.66% and the 1% traffic
+                  threshold is 100. An integer because the Kubernetes API convention
+                  rejects floats, which do not round-trip reliably across clients.
+                format: int32
+                type: integer
               history:
                 description: |-
                   History holds the most recent terminal runs, newest first, bounded to
@@ -462,10 +466,12 @@ spec:
                     which is fine for a single current-status snapshot but would make a
                     History slice's size unbounded.
                   properties:
-                    failureRate:
-                      description: FailureRate mirrors the top-level status.failureRate
-                        at run completion.
-                      type: number
+                    failureRateBasisPoints:
+                      description: |-
+                        FailureRateBasisPoints mirrors the top-level
+                        status.failureRateBasisPoints at run completion.
+                      format: int32
+                      type: integer
                     finishedAt:
                       description: FinishedAt is when this run reached a terminal
                         phase.
@@ -474,6 +480,13 @@ spec:
                     phase:
                       description: Phase is the terminal phase this run reached (Succeeded
                         or Failed).
+                      enum:
+                      - Pending
+                      - Running
+                      - Succeeded
+                      - Failed
+                      - Error
+                      - Terminating
                       type: string
                     slaStatus:
                       description: SLAStatus mirrors the top-level status.slaStatus
