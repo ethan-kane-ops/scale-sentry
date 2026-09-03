@@ -10,10 +10,10 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -72,6 +72,7 @@ const (
 	EventReasonLoadgenJobFailed   = "LoadgenJobFailed"
 	EventReasonLoadgenJobVanished = "LoadgenJobVanished"
 	EventReasonTargetReadyTimeout = "TargetReadyTimeout"
+	EventReasonTargetUnresolvable = "TargetUnresolvable"
 	EventReasonTLSCABundleMissing = "TLSCABundleMissing"
 	EventReasonVerdictPass        = "VerdictPass"
 	EventReasonVerdictFail        = "VerdictFail"
@@ -121,7 +122,8 @@ func (r *ScaleValidationReconciler) eventf(cr *v1alpha1.ScaleValidation, eventTy
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=validation.scale-sentry.ek.co,resources=scalevalidations/finalizers,verbs=update
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments/scale;statefulsets/scale;replicasets/scale,verbs=get
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 //+kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get
@@ -172,6 +174,9 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return r.setPhase(ctx, &cr, PhaseError)
 		}
 		ready, readyReplicas, err := r.targetReady(ctx, &cr)
+		if errors.Is(err, errTargetUnresolvable) {
+			return ctrl.Result{}, r.failTargetUnresolvable(ctx, &cr, err)
+		}
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -183,7 +188,7 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			if time.Since(cr.CreationTimestamp.Time) > timeout {
 				return r.failTargetNotReady(ctx, &cr, readyReplicas, timeout)
 			}
-			log.Info("target deployment not ready, requeueing",
+			log.Info("target workload not ready, requeueing",
 				"target", cr.Spec.TargetRef.Name, "readyReplicas", readyReplicas)
 			return ctrl.Result{RequeueAfter: targetReadyPollInterval}, nil
 		}
@@ -383,23 +388,44 @@ func appendRunHistory(cr *v1alpha1.ScaleValidation) {
 	}
 }
 
-// targetReady reports whether the CR's target Deployment has at least one
-// ready replica. A missing Deployment counts as not-ready, the user may
-// have applied the CR before the workload, or the workload may still be
-// rolling out, and is reported with readyReplicas=0 rather than as an
-// error. The replica count is returned so the timeout diagnostic can
-// distinguish "deployment missing" (0 ready) from "deployment exists but
-// none healthy" (also 0 ready, but the surrounding events will explain why).
+// targetReady reports whether the CR's target workload has at least one
+// ready replica. The workload is whatever spec.targetRef names, resolved
+// through its scale subresource, so a StatefulSet target is counted as a
+// StatefulSet rather than silently probed as a Deployment.
+//
+// A missing workload counts as not-ready, the user may have applied the CR
+// before the workload, or the workload may still be rolling out, and is
+// reported with readyReplicas=0 rather than as an error. An unresolvable
+// kind is a different case and surfaces as errTargetUnresolvable, which
+// the caller turns into a terminal diagnostic. The replica count is
+// returned so the timeout diagnostic can distinguish "workload missing"
+// (0 ready) from "workload exists but none healthy" (also 0 ready, but the
+// surrounding events will explain why).
 func (r *ScaleValidationReconciler) targetReady(ctx context.Context, cr *v1alpha1.ScaleValidation) (bool, int32, error) {
-	var deploy appsv1.Deployment
-	key := types.NamespacedName{Namespace: cr.Namespace, Name: cr.Spec.TargetRef.Name}
-	if err := r.Get(ctx, key, &deploy); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, 0, nil
-		}
-		return false, 0, fmt.Errorf("get target deployment %s: %w", cr.Spec.TargetRef.Name, err)
-	}
-	return deploy.Status.ReadyReplicas >= 1, deploy.Status.ReadyReplicas, nil
+	return r.targetPodsReady(ctx, cr)
+}
+
+// failTargetUnresolvable appends a Critical TargetUnsupported diagnostic
+// and moves the CR to PhaseError. Called when spec.targetRef names a kind
+// this cluster does not serve, one the manager has no RBAC for, or a
+// workload with no usable scale subresource. Requeueing would never
+// succeed, so the run is failed immediately with the kind named in the
+// message rather than left to time out against the readiness gate.
+func (r *ScaleValidationReconciler) failTargetUnresolvable(ctx context.Context, cr *v1alpha1.ScaleValidation, cause error) error {
+	ref := cr.Spec.TargetRef
+	msg := fmt.Sprintf("cannot resolve targetRef %s/%s %s: %v", ref.APIVersion, ref.Kind, ref.Name, cause)
+	cr.Status.Diagnostics = append(cr.Status.Diagnostics, v1alpha1.DiagnosticAlert{
+		Type:     "TargetUnsupported",
+		Severity: "Critical",
+		Message:  msg,
+		Recommendation: "check spec.targetRef.apiVersion and .kind name a scalable workload that exists in this cluster, " +
+			"and that the manager ClusterRole grants read access to it and its scale subresource",
+	})
+	r.eventf(cr, corev1.EventTypeWarning, EventReasonTargetUnresolvable, "%s", msg)
+	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
+	metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, "TargetUnsupported", "Critical").Inc()
+	_, err := r.setPhase(ctx, cr, PhaseError)
+	return err
 }
 
 // failTargetNotReady appends a Critical TargetNotReady diagnostic and moves
@@ -427,6 +453,9 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 	log := logf.FromContext(ctx)
 
 	url, err := r.resolveTargetURL(ctx, cr)
+	if errors.Is(err, errTargetUnresolvable) {
+		return ctrl.Result{}, r.failTargetUnresolvable(ctx, cr, err)
+	}
 	if err != nil {
 		log.Error(err, "resolve target URL")
 		return r.setPhase(ctx, cr, PhaseError)
@@ -439,6 +468,9 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 	}
 
 	job, err := r.buildLoadgenJob(cr, url)
+	if errors.Is(err, errTargetUnresolvable) {
+		return ctrl.Result{}, r.failTargetUnresolvable(ctx, cr, err)
+	}
 	if err != nil {
 		log.Error(err, "build loadgen job")
 		return r.setPhase(ctx, cr, PhaseError)

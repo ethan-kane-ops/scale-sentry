@@ -12,8 +12,8 @@ metadata:
   namespace: production
 spec:
   targetRef:
-    apiVersion: apps/v1
-    kind: Deployment
+    apiVersion: apps/v1        # any scalable workload, not just apps/v1
+    kind: Deployment           # Deployment | StatefulSet | ReplicaSet | ...
     name: billing-service
 
   sla: 90s

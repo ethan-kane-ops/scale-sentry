@@ -121,9 +121,10 @@ func mustCreate(t *testing.T, obj client.Object) {
 }
 
 // mustCreateReadyTarget creates the target Deployment the CR points at and
-// patches its status so readyReplicas>=1. The reconciler's readiness gate
-// holds the loadgen Job back until this is true, so every test that wants
-// to drive the CR past Pending needs it.
+// gives it one ready Pod. The reconciler's readiness gate holds the loadgen
+// Job back until at least one pod behind the target's scale-subresource
+// selector is Ready, and envtest runs no kubelet or workload controllers,
+// so that pod has to be made by hand.
 func mustCreateReadyTarget(t *testing.T, ns, name string) {
 	t.Helper()
 	deploy := newTargetDeployment(ns, name, false)
@@ -134,6 +135,7 @@ func mustCreateReadyTarget(t *testing.T, ns, name string) {
 	if err := k8sClient.Status().Update(context.Background(), deploy); err != nil {
 		t.Fatalf("set deployment status: %v", err)
 	}
+	createHealthyTargetPod(t, ns, name+"-pod", name)
 }
 
 func reconcileCR(t *testing.T, r *ScaleValidationReconciler, ns, name string) {
@@ -398,12 +400,7 @@ func TestIntegration_AutoDiscoverProbe(t *testing.T) {
 	r := newReconciler()
 	deploy := newTargetDeployment(ns, "app", true)
 	mustCreate(t, deploy)
-	deploy.Status.Replicas = 1
-	deploy.Status.ReadyReplicas = 1
-	deploy.Status.AvailableReplicas = 1
-	if err := k8sClient.Status().Update(context.Background(), deploy); err != nil {
-		t.Fatalf("set deployment status: %v", err)
-	}
+	createHealthyTargetPod(t, ns, "app-pod", "app")
 	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
 	}))
@@ -463,22 +460,114 @@ func TestIntegration_TargetUnready_ThenReady(t *testing.T) {
 	reconcileCR(t, r, ns, "run")
 	reconcileCR(t, r, ns, "run")
 	if got := getCR(t, ns, "run").Status.Phase; got != PhasePending {
-		t.Fatalf("phase = %q, want Pending while readyReplicas=0", got)
+		t.Fatalf("phase = %q, want Pending while no target pod is ready", got)
 	}
 
-	// Workload becomes ready.
-	deploy.Status.Replicas = 1
-	deploy.Status.ReadyReplicas = 1
-	deploy.Status.AvailableReplicas = 1
-	if err := k8sClient.Status().Update(context.Background(), deploy); err != nil {
-		t.Fatalf("set deployment status: %v", err)
-	}
+	// Workload becomes ready: a pod behind the Deployment's selector
+	// reports Ready.
+	createHealthyTargetPod(t, ns, "app-pod", "app")
 
 	reconcileCR(t, r, ns, "run")
 	if got := getCR(t, ns, "run").Status.Phase; got != PhaseRunning {
 		t.Fatalf("phase = %q, want Running once target is ready", got)
 	}
 	getJob(t, ns, "run-loadgen") // panics via t.Fatalf if absent
+}
+
+// TestIntegration_StatefulSetTarget is the ENG-148 regression test.
+// spec.targetRef.kind used to be ignored: a StatefulSet target was probed
+// as a Deployment of the same name, so the run stalled and eventually
+// reported TargetNotReady against a workload that was perfectly healthy.
+// The target is now resolved through its scale subresource, which every
+// scalable kind serves.
+func TestIntegration_StatefulSetTarget(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+
+	labels := map[string]string{"app": "sts"}
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "sts", Namespace: ns},
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName: "sts",
+			Selector:    &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "web", Image: "web:1"}}},
+			},
+		},
+	}
+	mustCreate(t, sts)
+	createHealthyTargetPod(t, ns, "sts-0", "sts")
+
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.TargetRef.Kind = "StatefulSet"
+		cr.Spec.TargetRef.Name = "sts"
+	}))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+
+	if got := getCR(t, ns, "run").Status.Phase; got != PhaseRunning {
+		t.Fatalf("phase = %q, want Running for a ready StatefulSet target", got)
+	}
+	job := getJob(t, ns, "run-loadgen")
+	args := job.Spec.Template.Spec.InitContainers[0].Args
+	for flag, want := range map[string]string{
+		"--target-kind":     "StatefulSet",
+		"--target-resource": "statefulsets",
+		"--target-group":    "apps",
+	} {
+		if got := flagValue(args, flag); got != want {
+			t.Errorf("observer %s = %q, want %q (args %v)", flag, got, want, args)
+		}
+	}
+}
+
+// flagValue returns the value following flag in args, or "" if absent.
+func flagValue(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// TestIntegration_UnknownTargetKind_FailsFast covers the other half of
+// ENG-148: a kind the cluster does not serve is a spec error, so the run
+// fails immediately with a diagnostic naming the kind instead of silently
+// waiting out the readiness window against a Deployment lookup.
+func TestIntegration_UnknownTargetKind_FailsFast(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	mustCreate(t, newScaleValidation(ns, "run", func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.TargetRef.APIVersion = "argoproj.io/v1alpha1"
+		cr.Spec.TargetRef.Kind = "Rollout"
+		cr.Spec.TargetRef.Name = "rollout"
+	}))
+
+	reconcileCR(t, r, ns, "run")
+	reconcileCR(t, r, ns, "run")
+
+	cr := getCR(t, ns, "run")
+	if cr.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error for an unresolvable targetRef kind", cr.Status.Phase)
+	}
+	var found *v1alpha1.DiagnosticAlert
+	for i := range cr.Status.Diagnostics {
+		if cr.Status.Diagnostics[i].Type == "TargetUnsupported" {
+			found = &cr.Status.Diagnostics[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("no TargetUnsupported diagnostic, got %+v", cr.Status.Diagnostics)
+	}
+	if !strings.Contains(found.Message, "Rollout") {
+		t.Errorf("diagnostic should name the unresolvable kind, got %q", found.Message)
+	}
+	if reasons := drainEventReasons(t, r); !slices.Contains(reasons, EventReasonTargetUnresolvable) {
+		t.Errorf("Events = %v, want %s", reasons, EventReasonTargetUnresolvable)
+	}
 }
 
 // TestIntegration_Finalizer_AddedOnFirstReconcile ensures every fresh CR
@@ -837,9 +926,8 @@ func countAliveTargetPods(t *testing.T, ns, app string) int {
 func TestIntegration_Disruption_DeletesVictim(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
-	mustCreateReadyTarget(t, ns, "app")
+	mustCreateReadyTarget(t, ns, "app") // supplies the first healthy pod
 	createHealthyTargetPod(t, ns, "app-0", "app")
-	createHealthyTargetPod(t, ns, "app-1", "app")
 	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
 			InjectPodDeletion:   true,
@@ -876,8 +964,7 @@ func TestIntegration_Disruption_DeletesVictim(t *testing.T) {
 func TestIntegration_Disruption_SkippedBelowMinReplicas(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
-	mustCreateReadyTarget(t, ns, "app")
-	createHealthyTargetPod(t, ns, "app-0", "app")
+	mustCreateReadyTarget(t, ns, "app") // supplies the only healthy pod
 	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
 			InjectPodDeletion:   true,
@@ -907,9 +994,8 @@ func TestIntegration_Disruption_SkippedBelowMinReplicas(t *testing.T) {
 func TestIntegration_Disruption_TriggerDelayRequeues(t *testing.T) {
 	ns := newTestNamespace(t)
 	r := newReconciler()
-	mustCreateReadyTarget(t, ns, "app")
+	mustCreateReadyTarget(t, ns, "app") // supplies the first healthy pod
 	createHealthyTargetPod(t, ns, "app-0", "app")
-	createHealthyTargetPod(t, ns, "app-1", "app")
 	mustCreate(t, newScaleValidation(ns, "chaos", func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Disruption = &v1alpha1.DisruptionConfig{
 			InjectPodDeletion:   true,

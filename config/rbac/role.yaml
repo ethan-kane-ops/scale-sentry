@@ -31,10 +31,20 @@ rules:
   - apps
   resources:
   - deployments
+  - replicasets
+  - statefulsets
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  - replicasets/scale
+  - statefulsets/scale
+  verbs:
+  - get
 - apiGroups:
   - batch
   resources:

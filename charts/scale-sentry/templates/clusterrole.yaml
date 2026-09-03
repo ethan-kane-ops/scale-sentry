@@ -18,8 +18,11 @@ rules:
   resources: [pods]
   verbs: [delete, get, list, watch]
 - apiGroups: [apps]
-  resources: [deployments]
+  resources: [deployments, replicasets, statefulsets]
   verbs: [get, list, watch]
+- apiGroups: [apps]
+  resources: [deployments/scale, replicasets/scale, statefulsets/scale]
+  verbs: [get]
 - apiGroups: [batch]
   resources: [jobs]
   verbs: [create, delete, get, list, watch]
@@ -35,4 +38,7 @@ rules:
 - apiGroups: [validation.scale-sentry.ek.co]
   resources: [scalevalidations/status]
   verbs: [get, patch, update]
+{{- with .Values.rbac.extraRules }}
+{{ toYaml . }}
+{{- end }}
 {{- end -}}

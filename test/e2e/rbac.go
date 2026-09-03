@@ -34,7 +34,7 @@ func applyObserverRBAC(t *testing.T, c client.Client, ctx context.Context, ns st
 	mustCreate(t, c, ctx, &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: observerSAName, Namespace: ns},
 		Rules: []rbacv1.PolicyRule{
-			{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get"}},
+			{APIGroups: []string{"apps"}, Resources: []string{"deployments/scale", "replicasets/scale", "statefulsets/scale"}, Verbs: []string{"get"}},
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}},
 			{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"list", "watch"}},
 			{APIGroups: []string{"autoscaling"}, Resources: []string{"horizontalpodautoscalers"}, Verbs: []string{"get", "list"}},

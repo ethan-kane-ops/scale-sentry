@@ -152,9 +152,38 @@ spec:
 
 `tls.insecureSkipVerify: true` exists for dev clusters but is loud about masking TLS errors; do not enable it on production runs.
 
+## Workload kinds other than Deployment {#workload-kinds}
+
+`spec.targetRef` is a cross-version reference, and its `apiVersion` and `kind` are honoured. The workload is resolved through its `scale` subresource, the same one the HorizontalPodAutoscaler reads, so anything scalable can be a target:
+
+```yaml
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: cart-store
+```
+
+`Deployment`, `StatefulSet` and `ReplicaSet` work out of the box. Anything else needs two things:
+
+1. The kind must serve a `scale` subresource whose `status.selector` identifies its pods. Argo Rollouts and most scalable CRDs do.
+2. The manager and observer need RBAC for that resource and its `scale` subresource. The chart exposes an extension point:
+
+```yaml
+rbac:
+  extraRules:
+    - apiGroups: [argoproj.io]
+      resources: [rollouts, rollouts/scale]
+      verbs: [get, list, watch]
+```
+
+If the kind cannot be resolved, the run fails immediately with a `TargetUnsupported` diagnostic naming it, rather than waiting out the readiness window.
+
+`AutoDiscoverProbe` additionally needs the workload to carry a pod template at `spec.template.spec.containers`, which every built-in workload kind does.
+
 ## CRDs the cookbook does not cover
 
 - Custom path matching for upstream-rewritten routes (`mode: CustomPath` + a non-`/` `customPath`).
-- `AutoDiscoverProbe` mode that reads the target Deployment's readiness probe to pick port + path + scheme automatically.
+- `AutoDiscoverProbe` mode that reads the target workload's readiness probe to pick port + path + scheme automatically.
 
 See the [Configuration reference](configuration.md) for both.

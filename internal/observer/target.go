@@ -8,6 +8,8 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/hpa"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/probelag"
@@ -19,7 +21,7 @@ type target struct {
 	// replica, cgroup analysis tracks the running workload, not the
 	// cold-start subject).
 	samplePod *corev1.Pod
-	// selector is the deployment's label selector, stored so the
+	// selector is the workload's scale status.selector, stored so the
 	// finalization re-lists pods and finds whichever ones the HPA spun up
 	// during the run.
 	selector string
@@ -27,26 +29,54 @@ type target struct {
 	hpa *autoscalingv2.HorizontalPodAutoscaler
 }
 
-// resolveTarget looks up the target Deployment, its pods, and its HPA.
+// applyTargetDefaults fills the workload-identity fields with apps/v1
+// Deployment, keeping the observer runnable standalone and preserving the
+// behaviour of controllers that predate the flags.
+func (c *Config) applyTargetDefaults() {
+	if c.TargetKind == "" {
+		c.TargetKind = "Deployment"
+	}
+	if c.TargetResource == "" {
+		c.TargetGroup, c.TargetVersion, c.TargetResource = "apps", "v1", "deployments"
+	}
+	if c.TargetVersion == "" {
+		c.TargetVersion = "v1"
+	}
+}
+
+// targetGVR is the workload as a GroupVersionResource, resolved by the
+// controller and passed down as flags.
+func (c Config) targetGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{Group: c.TargetGroup, Version: c.TargetVersion, Resource: c.TargetResource}
+}
+
+// resolveTarget looks up the target workload's pods and its HPA. The
+// workload's label selector comes from its scale subresource rather than
+// from a Deployment's spec.selector, so any scalable kind resolves and the
+// selector is exactly the one the HPA itself uses to find pods.
 func (s *Session) resolveTarget(ctx context.Context) (*target, error) {
-	deploy, err := s.clientset.AppsV1().Deployments(s.cfg.Namespace).Get(ctx, s.cfg.TargetName, metav1.GetOptions{})
+	scaleObj, err := s.dyn.Resource(s.cfg.targetGVR()).Namespace(s.cfg.Namespace).
+		Get(ctx, s.cfg.TargetName, metav1.GetOptions{}, "scale")
 	if err != nil {
-		return nil, fmt.Errorf("get deployment %s: %w", s.cfg.TargetName, err)
+		return nil, fmt.Errorf("get scale of %s %s: %w", s.cfg.TargetKind, s.cfg.TargetName, err)
 	}
-	sel, err := metav1.LabelSelectorAsSelector(deploy.Spec.Selector)
+	selector, _, err := unstructured.NestedString(scaleObj.Object, "status", "selector")
 	if err != nil {
-		return nil, fmt.Errorf("deployment selector: %w", err)
+		return nil, fmt.Errorf("read scale status.selector of %s %s: %w", s.cfg.TargetKind, s.cfg.TargetName, err)
 	}
-	pods, err := s.clientset.CoreV1().Pods(s.cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: sel.String()})
+	if selector == "" {
+		return nil, fmt.Errorf("%s %s reports an empty scale status.selector", s.cfg.TargetKind, s.cfg.TargetName)
+	}
+	pods, err := s.clientset.CoreV1().Pods(s.cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
 		return nil, fmt.Errorf("list target pods: %w", err)
 	}
 	if len(pods.Items) == 0 {
-		return nil, fmt.Errorf("deployment %s has no pods", s.cfg.TargetName)
+		return nil, fmt.Errorf("%s %s has no pods", s.cfg.TargetKind, s.cfg.TargetName)
 	}
 	return &target{
 		samplePod: &pods.Items[0],
-		selector:  sel.String(),
+		selector:  selector,
 		hpa:       s.findHPA(ctx),
 	}, nil
 }
@@ -71,7 +101,7 @@ func pickColdStartPod(pods []corev1.Pod, runStart time.Time) *corev1.Pod {
 }
 
 // findHPA returns the HPA whose scaleTargetRef points at the target
-// Deployment, or nil if none exists.
+// workload, or nil if none exists.
 func (s *Session) findHPA(ctx context.Context) *autoscalingv2.HorizontalPodAutoscaler {
 	list, err := s.clientset.AutoscalingV2().HorizontalPodAutoscalers(s.cfg.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -80,11 +110,11 @@ func (s *Session) findHPA(ctx context.Context) *autoscalingv2.HorizontalPodAutos
 	}
 	for i := range list.Items {
 		ref := list.Items[i].Spec.ScaleTargetRef
-		if ref.Kind == "Deployment" && ref.Name == s.cfg.TargetName {
+		if ref.Kind == s.cfg.TargetKind && ref.Name == s.cfg.TargetName {
 			return &list.Items[i]
 		}
 	}
-	warn("no HPA targets deployment %s", s.cfg.TargetName)
+	warn("no HPA targets %s %s", s.cfg.TargetKind, s.cfg.TargetName)
 	return nil
 }
 
