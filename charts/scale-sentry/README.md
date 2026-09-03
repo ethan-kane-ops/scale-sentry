@@ -61,6 +61,7 @@ for verification steps.
 | nameOverride | string | `""` | Override the chart name used in resource names |
 | observerImage | string | `""` | Observer Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion. |
 | observerServiceAccount | string | `"scale-sentry-observer"` | Observer ServiceAccount name. Fixed at "scale-sentry-observer" because the observer Role + RoleBinding are symlinked from config/rbac/observer_role.yaml and hardcode that name. CRs in other namespaces need the observer RBAC applied there separately. |
-| rbac | object | `{"create":true}` | rbac.create gates the controller manager ClusterRole + binding only. The observer RBAC (symlinked from config/) is always installed because the operator cannot function without it. |
+| rbac | object | `{"create":true,"extraRules":[]}` | rbac.create gates the controller manager ClusterRole + binding only. The observer RBAC (symlinked from config/) is always installed because the operator cannot function without it. |
+| rbac.extraRules | list | `[]` | Extra ClusterRole rules appended to the manager role. Needed when spec.targetRef names a scalable workload outside apps/v1, e.g. `[{apiGroups: [argoproj.io], resources: [rollouts, rollouts/scale], verbs: [get, list, watch]}]`. |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the controller ServiceAccount |
 | serviceAccount.create | bool | `true` | Create the controller ServiceAccount |

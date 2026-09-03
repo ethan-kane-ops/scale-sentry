@@ -1,17 +1,16 @@
 package controller
 
 import (
-	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/metrics"
@@ -137,51 +136,96 @@ func TestAppendRunHistory(t *testing.T) {
 	}
 }
 
-func TestTargetReady(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		t.Fatalf("scheme: %v", err)
-	}
-
-	cr := &v1alpha1.ScaleValidation{
-		ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "demo"},
-		Spec: v1alpha1.ScaleValidationSpec{
-			TargetRef: v1alpha1.CrossVersionObjectReference{Name: "app"},
-		},
-	}
-
-	withDeploy := func(replicas int32) *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "demo"},
-			Status:     appsv1.DeploymentStatus{ReadyReplicas: replicas},
-		}
-	}
-
+func TestTargetGVK(t *testing.T) {
 	tests := []struct {
-		name      string
-		deploy    *appsv1.Deployment
-		wantReady bool
-		wantCount int32
+		name       string
+		apiVersion string
+		kind       string
+		want       schema.GroupVersionKind
+		wantErr    bool
 	}{
-		{"missing target", nil, false, 0},
-		{"zero ready replicas", withDeploy(0), false, 0},
-		{"one ready replica", withDeploy(1), true, 1},
-		{"many ready replicas", withDeploy(5), true, 5},
+		{"apps deployment", "apps/v1", "Deployment", schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
+		{"apps statefulset", "apps/v1", "StatefulSet", schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"}, false},
+		{"custom group", "argoproj.io/v1alpha1", "Rollout", schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "Rollout"}, false},
+		{"empty apiVersion defaults to apps/v1", "", "Deployment", schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
+		{"empty kind", "apps/v1", "", schema.GroupVersionKind{}, true},
+		{"malformed apiVersion", "a/b/c", "Deployment", schema.GroupVersionKind{}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := fake.NewClientBuilder().WithScheme(scheme)
-			if tt.deploy != nil {
-				b = b.WithObjects(tt.deploy).WithStatusSubresource(tt.deploy)
+			cr := &v1alpha1.ScaleValidation{
+				Spec: v1alpha1.ScaleValidationSpec{
+					TargetRef: v1alpha1.CrossVersionObjectReference{
+						APIVersion: tt.apiVersion, Kind: tt.kind, Name: "app",
+					},
+				},
 			}
-			r := &ScaleValidationReconciler{Client: b.Build()}
-			ready, count, err := r.targetReady(context.Background(), cr)
+			got, err := targetGVK(cr)
+			if tt.wantErr {
+				if !errors.Is(err, errTargetUnresolvable) {
+					t.Fatalf("err = %v, want errTargetUnresolvable", err)
+				}
+				return
+			}
 			if err != nil {
-				t.Fatalf("targetReady: %v", err)
+				t.Fatalf("targetGVK: %v", err)
 			}
-			if ready != tt.wantReady || count != tt.wantCount {
-				t.Errorf("targetReady = (%v, %d), want (%v, %d)",
-					ready, count, tt.wantReady, tt.wantCount)
+			if got != tt.want {
+				t.Errorf("targetGVK = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestClassifyTargetError pins the distinction ENG-148 turns on: a kind
+// the cluster does not serve is a spec error the run must fail on, while a
+// NotFound is the normal "workload not applied yet" case the readiness
+// gate keeps waiting through.
+func TestClassifyTargetError(t *testing.T) {
+	cr := &v1alpha1.ScaleValidation{
+		Spec: v1alpha1.ScaleValidationSpec{
+			TargetRef: v1alpha1.CrossVersionObjectReference{
+				APIVersion: "argoproj.io/v1alpha1", Kind: "Rollout", Name: "app",
+			},
+		},
+	}
+	gk := schema.GroupKind{Group: "argoproj.io", Kind: "Rollout"}
+
+	if err := classifyTargetError(cr, &meta.NoKindMatchError{GroupKind: gk}); !errors.Is(err, errTargetUnresolvable) {
+		t.Errorf("no-match error = %v, want errTargetUnresolvable", err)
+	}
+
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Group: "argoproj.io", Resource: "rollouts"}, "app", errors.New("nope"))
+	if err := classifyTargetError(cr, forbidden); !errors.Is(err, errTargetUnresolvable) {
+		t.Errorf("forbidden error = %v, want errTargetUnresolvable", err)
+	}
+
+	notFound := apierrors.NewNotFound(schema.GroupResource{Group: "apps", Resource: "deployments"}, "app")
+	err := classifyTargetError(cr, notFound)
+	if errors.Is(err, errTargetUnresolvable) {
+		t.Errorf("NotFound must stay retryable, got errTargetUnresolvable: %v", err)
+	}
+	if !apierrors.IsNotFound(err) {
+		t.Errorf("NotFound must pass through unchanged, got %v", err)
+	}
+}
+
+func TestPodReady(t *testing.T) {
+	tests := []struct {
+		name string
+		pod  corev1.Pod
+		want bool
+	}{
+		{"ready", corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{
+			{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}, true},
+		{"running but not ready", corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{
+			{Type: corev1.PodReady, Status: corev1.ConditionFalse}}}}, false},
+		{"no conditions", corev1.Pod{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := podReady(&tt.pod); got != tt.want {
+				t.Errorf("podReady = %v, want %v", got, tt.want)
 			}
 		})
 	}

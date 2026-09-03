@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
-	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/probe"
@@ -58,6 +58,11 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 
 	loadgenMounts := []corev1.VolumeMount{{Name: runVolumeName, MountPath: runVolumePath}}
 	observerMounts := []corev1.VolumeMount{{Name: runVolumeName, MountPath: runVolumePath}}
+
+	obsArgs, err := r.observerArgs(cr)
+	if err != nil {
+		return nil, err
+	}
 	containerSC := restrictedContainerSecurityContext()
 	podSC := restrictedPodSecurityContext()
 	volumes := []corev1.Volume{{
@@ -111,7 +116,7 @@ func (r *ScaleValidationReconciler) buildLoadgenJob(cr *v1alpha1.ScaleValidation
 					InitContainers: []corev1.Container{{
 						Name:            observerContainerName,
 						Image:           r.ObserverImage,
-						Args:            observerArgs(cr),
+						Args:            obsArgs,
 						RestartPolicy:   &sidecarRestart,
 						SecurityContext: containerSC,
 						VolumeMounts:    observerMounts,
@@ -186,14 +191,29 @@ func caBundleRef(cr *v1alpha1.ScaleValidation) *v1alpha1.ConfigMapKeyRef {
 	return &cr.Spec.Target.TLS.CABundle.ConfigMapRef
 }
 
-// observerArgs renders the observer sidecar flags.
-func observerArgs(cr *v1alpha1.ScaleValidation) []string {
+// observerArgs renders the observer sidecar flags. The target's
+// GroupVersionResource is resolved here rather than in the observer: the
+// manager already runs a RESTMapper, so the sidecar needs no discovery
+// permissions of its own to read the workload's scale subresource.
+func (r *ScaleValidationReconciler) observerArgs(cr *v1alpha1.ScaleValidation) ([]string, error) {
+	gvk, err := targetGVK(cr)
+	if err != nil {
+		return nil, err
+	}
+	mapping, err := r.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return nil, fmt.Errorf("%w: no REST mapping for %s: %w", errTargetUnresolvable, gvk, err)
+	}
 	return []string{
 		"--target-name", cr.Spec.TargetRef.Name,
 		"--namespace", cr.Namespace,
+		"--target-kind", gvk.Kind,
+		"--target-group", mapping.Resource.Group,
+		"--target-version", mapping.Resource.Version,
+		"--target-resource", mapping.Resource.Resource,
 		"--sla", cr.Spec.SLA.Duration.String(),
 		"--result-file", resultFilePath,
-	}
+	}, nil
 }
 
 // resolveTargetURL builds the HTTP URL the loadgen Job hits. ServiceDefault
@@ -232,19 +252,33 @@ func (r *ScaleValidationReconciler) resolveTargetURL(ctx context.Context, cr *v1
 	}
 }
 
-// discoverProbe fetches the target Deployment and resolves its first
-// container's readiness probe.
+// discoverProbe fetches the target workload named by spec.targetRef and
+// resolves its first container's readiness probe. The pod template lives
+// at the same path on every workload kind that has one (Deployment,
+// StatefulSet, ReplicaSet, DaemonSet), so the lookup is done on the
+// unstructured object rather than against a single typed kind.
 func (r *ScaleValidationReconciler) discoverProbe(ctx context.Context, cr *v1alpha1.ScaleValidation) (probe.Spec, error) {
-	var deploy appsv1.Deployment
-	key := types.NamespacedName{Namespace: cr.Namespace, Name: cr.Spec.TargetRef.Name}
-	if err := r.Get(ctx, key, &deploy); err != nil {
-		return probe.Spec{}, fmt.Errorf("get deployment %s: %w", cr.Spec.TargetRef.Name, err)
+	obj, err := r.targetObject(ctx, cr)
+	if err != nil {
+		return probe.Spec{}, err
 	}
-	containers := deploy.Spec.Template.Spec.Containers
-	if len(containers) == 0 {
-		return probe.Spec{}, fmt.Errorf("deployment %s has no containers", cr.Spec.TargetRef.Name)
+	ref := cr.Spec.TargetRef
+	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	if err != nil {
+		return probe.Spec{}, fmt.Errorf("read pod template of %s %s: %w", ref.Kind, ref.Name, err)
 	}
-	return probe.DiscoverFromContainer(containers[0])
+	if !found || len(raw) == 0 {
+		return probe.Spec{}, fmt.Errorf("%s %s has no pod template containers, AutoDiscoverProbe needs one", ref.Kind, ref.Name)
+	}
+	fields, ok := raw[0].(map[string]any)
+	if !ok {
+		return probe.Spec{}, fmt.Errorf("%s %s has a malformed first container", ref.Kind, ref.Name)
+	}
+	var container corev1.Container
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(fields, &container); err != nil {
+		return probe.Spec{}, fmt.Errorf("decode first container of %s %s: %w", ref.Kind, ref.Name, err)
+	}
+	return probe.DiscoverFromContainer(container)
 }
 
 // restrictedPodSecurityContext satisfies the PodSecurityAdmission Restricted

@@ -1,7 +1,13 @@
 # RBAC for the loadgen Job's observer sidecar. The observer reads the
-# target workload's HPA, EndpointSlices, and pods within a single
-# namespace, and scrapes the kubelet's cAdvisor `/metrics/cadvisor`
-# endpoint through the apiserver proxy for CFS throttle counters.
+# target workload's scale subresource, HPA, EndpointSlices, and pods
+# within a single namespace, and scrapes the kubelet's cAdvisor
+# `/metrics/cadvisor` endpoint through the apiserver proxy for CFS
+# throttle counters.
+#
+# The workload itself is only ever read through `<resource>/scale`, never
+# as a whole object: the scale subresource carries the label selector the
+# observer needs and nothing else. Targets outside apps/v1 need their own
+# `<resource>/scale` grant added here.
 #
 # The proxy hop requires `nodes/proxy` (cluster-scoped), modelled as a
 # ClusterRoleBinding to the same observer SA. The rest stays a namespaced
@@ -22,7 +28,9 @@ rules:
 - apiGroups:
   - apps
   resources:
-  - deployments
+  - deployments/scale
+  - replicasets/scale
+  - statefulsets/scale
   verbs:
   - get
 - apiGroups:

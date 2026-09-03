@@ -66,6 +66,8 @@ serviceAccount:
 # -- rbac.create gates the controller manager ClusterRole + binding only. The observer RBAC (symlinked from config/) is always installed because the operator cannot function without it.
 rbac:
   create: true
+  # -- Extra ClusterRole rules appended to the manager role. Needed when spec.targetRef names a scalable workload outside apps/v1, e.g. `[{apiGroups: [argoproj.io], resources: [rollouts, rollouts/scale], verbs: [get, list, watch]}]`.
+  extraRules: []
 
 # metrics controls the Prometheus scrape surface for the controller. Both gates
 # are off by default so the chart is self-contained on clusters without

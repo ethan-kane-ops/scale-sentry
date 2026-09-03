@@ -29,8 +29,12 @@ func main() {
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&cfg.TargetName, "target-name", "", "name of the target Deployment (required)")
-	f.StringVar(&cfg.Namespace, "namespace", "", "namespace of the target Deployment (required)")
+	f.StringVar(&cfg.TargetName, "target-name", "", "name of the target workload (required)")
+	f.StringVar(&cfg.Namespace, "namespace", "", "namespace of the target workload (required)")
+	f.StringVar(&cfg.TargetKind, "target-kind", "Deployment", "Kind of the target workload, used to match its HPA")
+	f.StringVar(&cfg.TargetGroup, "target-group", "apps", "API group of the target workload")
+	f.StringVar(&cfg.TargetVersion, "target-version", "v1", "API version of the target workload")
+	f.StringVar(&cfg.TargetResource, "target-resource", "deployments", "plural resource name of the target workload")
 	f.StringVar(&cfg.ServiceName, "service-name", "", "Service whose EndpointSlices to watch (default: target name)")
 	f.DurationVar(&cfg.SLA, "sla", 0, "HPA scale-up SLA (required)")
 	f.DurationVar(&cfg.PollInterval, "poll-interval", 0, "HPA poll cadence (default 5s)")

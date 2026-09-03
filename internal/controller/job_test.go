@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -9,10 +10,13 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/ethan-kane-ops/scale-sentry/api/v1alpha1"
@@ -47,10 +51,10 @@ func TestLoadgenJobName(t *testing.T) {
 
 func TestTargetURL(t *testing.T) {
 	tests := []struct {
-		name             string
-		scheme, host     string
-		port             int32
-		path, want       string
+		name         string
+		scheme, host string
+		port         int32
+		path, want   string
 	}{
 		{"root path", "http", "app.demo.svc.cluster.local", 8080, "/", "http://app.demo.svc.cluster.local:8080/"},
 		{"empty path normalized", "http", "h", 80, "", "http://h:80/"},
@@ -126,9 +130,8 @@ func TestResolveTargetURL_AutoDiscoverProbe(t *testing.T) {
 			},
 		},
 	}
-	r := &ScaleValidationReconciler{
-		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build(),
-	}
+	r := testReconciler(deploy)
+	_ = scheme
 
 	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
@@ -154,9 +157,8 @@ func TestResolveTargetURL_AutoDiscoverProbeMissing(t *testing.T) {
 			},
 		},
 	}
-	r := &ScaleValidationReconciler{
-		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build(),
-	}
+	r := testReconciler(deploy)
+	_ = scheme
 	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Target.Mode = "AutoDiscoverProbe"
 	})
@@ -239,15 +241,77 @@ func TestLoadgenArgs_ProtocolOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+// testRESTMapper maps the apps/v1 workload kinds the controller resolves
+// spec.targetRef against. The fake client's default mapper is empty, so
+// without this any RESTMapping lookup fails with a NoMatch error.
+func testRESTMapper() meta.RESTMapper {
+	m := meta.NewDefaultRESTMapper([]schema.GroupVersion{{Group: "apps", Version: "v1"}})
+	for _, kind := range []string{"Deployment", "StatefulSet", "ReplicaSet"} {
+		m.Add(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: kind}, meta.RESTScopeNamespace)
+	}
+	return m
+}
+
+// testReconciler builds a reconciler whose fake client carries a populated
+// RESTMapper, which every spec.targetRef resolution path needs.
+func testReconciler(objs ...client.Object) *ScaleValidationReconciler {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	return &ScaleValidationReconciler{
+		Client: fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithRESTMapper(testRESTMapper()).
+			WithObjects(objs...).
+			Build(),
+	}
+}
+
 func TestObserverArgs(t *testing.T) {
-	args := observerArgs(testCR(nil))
+	args, err := testReconciler().observerArgs(testCR(nil))
+	if err != nil {
+		t.Fatalf("observerArgs: %v", err)
+	}
 	want := map[string]string{
-		"--target-name": "app",
-		"--namespace":   "demo",
-		"--sla":         "3m0s",
-		"--result-file": resultFilePath,
+		"--target-name":     "app",
+		"--namespace":       "demo",
+		"--target-kind":     "Deployment",
+		"--target-group":    "apps",
+		"--target-version":  "v1",
+		"--target-resource": "deployments",
+		"--sla":             "3m0s",
+		"--result-file":     resultFilePath,
 	}
 	assertFlags(t, args, want)
+}
+
+// TestObserverArgs_StatefulSetTarget is the regression guard for ENG-148:
+// spec.targetRef.kind used to be ignored entirely, so a StatefulSet target
+// silently produced a Deployment lookup in the observer.
+func TestObserverArgs_StatefulSetTarget(t *testing.T) {
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.TargetRef.Kind = "StatefulSet"
+	})
+	args, err := testReconciler().observerArgs(cr)
+	if err != nil {
+		t.Fatalf("observerArgs: %v", err)
+	}
+	assertFlags(t, args, map[string]string{
+		"--target-kind":     "StatefulSet",
+		"--target-group":    "apps",
+		"--target-version":  "v1",
+		"--target-resource": "statefulsets",
+	})
+}
+
+func TestObserverArgs_UnknownKindIsUnresolvable(t *testing.T) {
+	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
+		cr.Spec.TargetRef.APIVersion = "argoproj.io/v1alpha1"
+		cr.Spec.TargetRef.Kind = "Rollout"
+	})
+	_, err := testReconciler().observerArgs(cr)
+	if !errors.Is(err, errTargetUnresolvable) {
+		t.Fatalf("err = %v, want errTargetUnresolvable", err)
+	}
 }
 
 func assertFlags(t *testing.T, args []string, want map[string]string) {
@@ -265,11 +329,10 @@ func assertFlags(t *testing.T, args []string, want map[string]string) {
 }
 
 func TestBuildLoadgenJob(t *testing.T) {
-	r := &ScaleValidationReconciler{
-		LoadgenImage:           "registry.test/loadgen:v1",
-		ObserverImage:          "registry.test/observer:v1",
-		ObserverServiceAccount: "scale-sentry-observer",
-	}
+	r := testReconciler()
+	r.LoadgenImage = "registry.test/loadgen:v1"
+	r.ObserverImage = "registry.test/observer:v1"
+	r.ObserverServiceAccount = "scale-sentry-observer"
 	job, err := r.buildLoadgenJob(testCR(nil), "http://app.demo.svc.cluster.local:8080/")
 	if err != nil {
 		t.Fatalf("buildLoadgenJob: %v", err)
@@ -325,11 +388,10 @@ func TestBuildLoadgenJob(t *testing.T) {
 // and container specs satisfy the Kubernetes PodSecurityAdmission Restricted
 // profile, so the chart works on clusters that enforce it namespace-wide.
 func TestBuildLoadgenJob_PSARestrictedHardening(t *testing.T) {
-	r := &ScaleValidationReconciler{
-		LoadgenImage:           "registry.test/loadgen:v1",
-		ObserverImage:          "registry.test/observer:v1",
-		ObserverServiceAccount: "scale-sentry-observer",
-	}
+	r := testReconciler()
+	r.LoadgenImage = "registry.test/loadgen:v1"
+	r.ObserverImage = "registry.test/observer:v1"
+	r.ObserverServiceAccount = "scale-sentry-observer"
 	job, err := r.buildLoadgenJob(testCR(nil), "http://h:80/")
 	if err != nil {
 		t.Fatalf("buildLoadgenJob: %v", err)
@@ -370,11 +432,10 @@ func TestBuildLoadgenJob_PSARestrictedHardening(t *testing.T) {
 }
 
 func TestBuildLoadgenJob_TLSCABundleMount(t *testing.T) {
-	r := &ScaleValidationReconciler{
-		LoadgenImage:           "registry.test/loadgen:v1",
-		ObserverImage:          "registry.test/observer:v1",
-		ObserverServiceAccount: "scale-sentry-observer",
-	}
+	r := testReconciler()
+	r.LoadgenImage = "registry.test/loadgen:v1"
+	r.ObserverImage = "registry.test/observer:v1"
+	r.ObserverServiceAccount = "scale-sentry-observer"
 	cr := testCR(func(cr *v1alpha1.ScaleValidation) {
 		cr.Spec.Target.TLS = &v1alpha1.TLSConfig{
 			CABundle: &v1alpha1.CABundleSource{

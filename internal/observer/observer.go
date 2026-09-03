@@ -20,6 +20,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -55,9 +56,19 @@ const finalizeTimeout = 15 * time.Second
 // Config holds the observer's run parameters, supplied by the controller
 // as flags on the sidecar container.
 type Config struct {
-	// TargetName / Namespace identify the Deployment under test.
+	// TargetName / Namespace identify the workload under test.
 	TargetName string
 	Namespace  string
+	// TargetKind is the workload's Kind, used to match the HPA whose
+	// scaleTargetRef points at it. TargetGroup / TargetVersion /
+	// TargetResource are the same workload as a GroupVersionResource, so
+	// the observer can read its scale subresource without running its own
+	// discovery: the controller already has a RESTMapper and resolves the
+	// mapping there. All four default to apps/v1 Deployment.
+	TargetKind     string
+	TargetGroup    string
+	TargetVersion  string
+	TargetResource string
 	// ServiceName is the Service whose EndpointSlices are watched. Empty
 	// falls back to TargetName (the ENG-35 same-name assumption).
 	ServiceName string
@@ -86,6 +97,7 @@ type Report struct {
 type Session struct {
 	cfg        Config
 	clientset  kubernetes.Interface
+	dyn        dynamic.Interface
 	restConfig *rest.Config
 
 	// cadvisorOpen overrides the kubelet cAdvisor scrape opener in tests
@@ -103,13 +115,18 @@ func NewSession(cfg Config, restConfig *rest.Config) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build clientset: %w", err)
 	}
+	dyn, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("build dynamic client: %w", err)
+	}
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
 	if cfg.ServiceName == "" {
 		cfg.ServiceName = cfg.TargetName
 	}
-	return &Session{cfg: cfg, clientset: cs, restConfig: restConfig}, nil
+	cfg.applyTargetDefaults()
+	return &Session{cfg: cfg, clientset: cs, dyn: dyn, restConfig: restConfig}, nil
 }
 
 // Run observes the cluster until ctx is cancelled (SIGTERM on load-run

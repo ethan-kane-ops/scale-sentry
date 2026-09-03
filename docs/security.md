@@ -37,7 +37,8 @@ The controller manager runs cluster-wide because `ScaleValidation` Jobs can targ
 | `validation.scale-sentry.ek.co`    | `scalevalidations/status`           | get, update, patch                                     | Write phase, conditions, and the verdict report.      |
 | `validation.scale-sentry.ek.co`    | `scalevalidations/finalizers`       | update                                                 | Garbage-collect Jobs when a CR is deleted.            |
 | `batch`                            | `jobs`                              | get, list, watch, create, delete                       | Spawn and clean up the loadgen / observer Job.        |
-| `apps`                             | `deployments`                       | get, list, watch                                       | Resolve `targetRef` and the AutoDiscoverProbe path.   |
+| `apps`                             | `deployments`, `replicasets`, `statefulsets` | get, list, watch                              | Resolve `targetRef` and the AutoDiscoverProbe path.   |
+| `apps`                             | `*/scale` for those three           | get                                                    | Read the target's replica count and pod selector.     |
 | `""` (core)                        | `pods`                              | get, list, watch                                       | Discover loadgen + observer pods to surface progress. |
 | `""` (core)                        | `pods/log`                          | get                                                    | Stream observer logs into the controller for the verdict. |
 | `""` (core)                        | `configmaps`                        | get                                                    | Read user-supplied CA bundles for TLS targets.        |
@@ -52,7 +53,7 @@ The observer Job runs alongside the workload it is validating, so it gets a `Rol
 
 | Resource                                   | Verbs           | Reason                                              |
 | ------------------------------------------ | --------------- | --------------------------------------------------- |
-| `apps/deployments`                         | get             | Resolve the target workload.                        |
+| `apps/{deployments,replicasets,statefulsets}/scale` | get     | Read the target's pod selector. The workload is never read whole. |
 | `pods`                                     | get, list       | Map endpoints back to pod identities.               |
 | `discovery.k8s.io/endpointslices`          | list, watch     | Detect EndpointSlice updates for leakage analysis.  |
 | `autoscaling/horizontalpodautoscalers`     | get, list       | Watch HPA decisions, measure scale-up latency.      |
