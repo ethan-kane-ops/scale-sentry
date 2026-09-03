@@ -59,8 +59,9 @@ for verification steps.
 | metrics.serviceMonitor.relabelings | list | `[]` | ServiceMonitor relabelings |
 | metrics.serviceMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
 | nameOverride | string | `""` | Override the chart name used in resource names |
+| observer.namespaces | list | `[]` | Extra namespaces to install observer RBAC into. The release namespace is always covered. A ScaleValidation in a namespace missing from this list produces an observer with no permissions, so its run degrades to an Unknown verdict. Example: `[staging, payments]`. |
 | observerImage | string | `""` | Observer Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion. |
-| observerServiceAccount | string | `"scale-sentry-observer"` | Observer ServiceAccount name. Fixed at "scale-sentry-observer" because the observer Role + RoleBinding are symlinked from config/rbac/observer_role.yaml and hardcode that name. CRs in other namespaces need the observer RBAC applied there separately. |
+| observerServiceAccount | string | `"scale-sentry-observer"` | Observer ServiceAccount name, used by the loadgen Job's observer sidecar and by the RBAC rendered for every namespace in observer.namespaces. |
 | rbac | object | `{"create":true,"extraRules":[]}` | rbac.create gates the controller manager ClusterRole + binding only. The observer RBAC (symlinked from config/) is always installed because the operator cannot function without it. |
 | rbac.extraRules | list | `[]` | Extra ClusterRole rules appended to the manager role. Needed when spec.targetRef names a scalable workload outside apps/v1, e.g. `[{apiGroups: [argoproj.io], resources: [rollouts, rollouts/scale], verbs: [get, list, watch]}]`. |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the controller ServiceAccount |

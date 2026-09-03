@@ -54,8 +54,12 @@ loadgenImage: ""
 # -- Observer Job image the controller injects. Empty composes the default GHCR path at .Chart.AppVersion.
 observerImage: ""
 
-# -- Observer ServiceAccount name. Fixed at "scale-sentry-observer" because the observer Role + RoleBinding are symlinked from config/rbac/observer_role.yaml and hardcode that name. CRs in other namespaces need the observer RBAC applied there separately.
+# -- Observer ServiceAccount name, used by the loadgen Job's observer sidecar and by the RBAC rendered for every namespace in observer.namespaces.
 observerServiceAccount: scale-sentry-observer
+
+observer:
+  # -- Extra namespaces to install observer RBAC into. The release namespace is always covered. A ScaleValidation in a namespace missing from this list produces an observer with no permissions, so its run degrades to an Unknown verdict. Example: `[staging, payments]`.
+  namespaces: []
 
 serviceAccount:
   # -- Create the controller ServiceAccount
