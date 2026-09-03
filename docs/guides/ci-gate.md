@@ -7,8 +7,11 @@ A `ScaleValidation` is declarative and its verdict lands on `status`, which make
 ```bash
 kubectl apply -f scalevalidation.yaml
 
-if kubectl wait scalevalidation/payment-canary -n staging \
-    --for=jsonpath='{.status.phase}'=Succeeded --timeout=15m; then
+kubectl wait scalevalidation/payment-canary -n staging \
+    --for=condition=Finished --timeout=15m
+
+phase=$(kubectl get scalevalidation payment-canary -n staging -o jsonpath='{.status.phase}')
+if [ "$phase" = "Succeeded" ]; then
   echo "scale validation passed"
 else
   echo "scale validation did not pass:"
@@ -21,8 +24,16 @@ fi
 
 Notes on the mechanics:
 
-- `phase: Succeeded` is the terminal success state and implies the SLA and traffic-integrity checks passed. `Failed` and `Error` are the terminal non-success states; `kubectl wait` times out on them, which the `if` turns into a pipeline failure with the Events dump explaining why.
-- Size `--timeout` as `spec.sla` + warmup + load duration + scheduling slack. A 90s SLA run typically completes in a few minutes; 15m is a generous ceiling.
+- `Finished` goes True as soon as the run reaches any terminal phase, pass or fail. Waiting on it means a losing run fails the pipeline within seconds of the verdict instead of burning the whole `--timeout`.
+- `Finished` is not a pass/fail signal, deliberately. `kubectl wait --for=condition=X` only ever waits for `X` to become True, so a condition that went False on failure would leave the gate blocking anyway. The verdict lives in `status.phase`: `Succeeded`, `Failed`, or `Error`.
+- The condition's `reason` says why the run ended, and is a stable string worth matching on: `Succeeded`, `VerdictFailed`, `TargetNotReady`, `TargetUnsupported`, `TLSCABundleMissing`, `LoadgenJobFailed`, `LoadgenJobVanished`, `ObserverReportUnreadable`, `TargetURLUnresolved`, `JobBuildFailed`.
+
+  ```bash
+  kubectl get scalevalidation payment-canary -n staging \
+    -o jsonpath='{.status.conditions[?(@.type=="Finished")].reason}{"\n"}'
+  ```
+
+- `kubectl wait` still times out if the controller never reaches a verdict at all (a stuck target, a controller that is down). Size `--timeout` as `spec.sla` + warmup + load duration + scheduling slack. A 90s SLA run typically completes in a few minutes; 15m is a generous ceiling.
 - Clean up with `kubectl delete scalevalidation payment-canary`. Deleting mid-run is safe: a finalizer tears down the loadgen and observer Jobs.
 
 ## GitHub Actions example
@@ -43,7 +54,9 @@ scale-validation:
       run: |
         kubectl apply -f deploy/scalevalidation-canary.yaml
         kubectl wait scalevalidation/payment-canary -n staging \
-          --for=jsonpath='{.status.phase}'=Succeeded --timeout=15m
+          --for=condition=Finished --timeout=15m
+        test "$(kubectl get scalevalidation payment-canary -n staging \
+          -o jsonpath='{.status.phase}')" = Succeeded
     - name: Explain failure
       if: failure()
       env:

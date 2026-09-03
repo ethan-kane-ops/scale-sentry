@@ -171,7 +171,8 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			log.Info("loadgen job vanished before completion", "job", jobKey.Name)
 			r.eventf(&cr, corev1.EventTypeWarning, EventReasonLoadgenJobVanished,
 				"loadgen Job %s disappeared while phase=Running", jobKey.Name)
-			return r.setPhase(ctx, &cr, PhaseError)
+			return r.setTerminalPhase(ctx, &cr, PhaseError, FinishedReasonLoadgenJobVanished,
+				fmt.Sprintf("loadgen Job %s disappeared while phase=Running", jobKey.Name))
 		}
 		ready, readyReplicas, err := r.targetReady(ctx, &cr)
 		if errors.Is(err, errTargetUnresolvable) {
@@ -203,7 +204,8 @@ func (r *ScaleValidationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		r.eventf(&cr, corev1.EventTypeWarning, EventReasonLoadgenJobFailed,
 			"loadgen Job %s reached condition Failed=True", job.Name)
 		metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
-		return r.setPhase(ctx, &cr, PhaseError)
+		return r.setTerminalPhase(ctx, &cr, PhaseError, FinishedReasonLoadgenJobFailed,
+			fmt.Sprintf("loadgen Job %s reached condition Failed=True", job.Name))
 	case jobConditionTrue(&job, batchv1.JobComplete):
 		return r.finishRun(ctx, &cr)
 	default:
@@ -226,7 +228,8 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 		log.Info("loadgen job pod not found; cannot collect observer report")
 		r.eventf(cr, corev1.EventTypeWarning, EventReasonRunErrored,
 			"loadgen Job %s completed but no pod found to read observer report from", loadgenJobName(cr))
-		return r.setPhase(ctx, cr, PhaseError)
+		return r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonObserverReportUnreadable,
+			fmt.Sprintf("loadgen Job %s completed but no pod was found to read the observer report from", loadgenJobName(cr)))
 	}
 	if !observerTerminated(pod) {
 		// The Job is Complete (loadgen exited) but the observer sidecar
@@ -243,21 +246,23 @@ func (r *ScaleValidationReconciler) finishRun(ctx context.Context, cr *v1alpha1.
 		log.Error(err, "read observer log")
 		r.eventf(cr, corev1.EventTypeWarning, EventReasonRunErrored,
 			"reading observer log from pod %s failed: %v", pod.Name, err)
-		return r.setPhase(ctx, cr, PhaseError)
+		return r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonObserverReportUnreadable,
+			fmt.Sprintf("reading the observer log from pod %s failed: %v", pod.Name, err))
 	}
 	report, err := observer.ParseReportLog(raw)
 	if err != nil {
 		log.Error(err, "parse observer report")
 		r.eventf(cr, corev1.EventTypeWarning, EventReasonRunErrored,
 			"parsing observer report from pod %s failed: %v", pod.Name, err)
-		return r.setPhase(ctx, cr, PhaseError)
+		return r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonObserverReportUnreadable,
+			fmt.Sprintf("parsing the observer report from pod %s failed: %v", pod.Name, err))
 	}
 
 	applyReport(cr, report)
-	cr.Status.Phase = PhaseSucceeded
-	if report.SLAStatus == observer.VerdictFail || report.TrafficIntegrity == observer.VerdictFail {
-		cr.Status.Phase = PhaseFailed
-	}
+	phase, reason, message := finishedVerdict(report.SLAStatus, report.TrafficIntegrity,
+		report.TotalRequests, report.FailedRequests)
+	cr.Status.Phase = phase
+	markFinished(cr, reason, message)
 	appendRunHistory(cr)
 	if err := r.Status().Update(ctx, cr); err != nil {
 		return ctrl.Result{}, fmt.Errorf("write run results: %w", err)
@@ -424,7 +429,7 @@ func (r *ScaleValidationReconciler) failTargetUnresolvable(ctx context.Context, 
 	r.eventf(cr, corev1.EventTypeWarning, EventReasonTargetUnresolvable, "%s", msg)
 	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
 	metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, "TargetUnsupported", "Critical").Inc()
-	_, err := r.setPhase(ctx, cr, PhaseError)
+	_, err := r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonTargetUnsupported, msg)
 	return err
 }
 
@@ -445,7 +450,9 @@ func (r *ScaleValidationReconciler) failTargetNotReady(ctx context.Context, cr *
 		cr.Namespace, cr.Spec.TargetRef.Name, readyReplicas, timeout)
 	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
 	metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, "TargetNotReady", "Critical").Inc()
-	return r.setPhase(ctx, cr, PhaseError)
+	return r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonTargetNotReady,
+		fmt.Sprintf("target %s %s had %d ready replicas after waiting %s",
+			cr.Spec.TargetRef.Kind, cr.Spec.TargetRef.Name, readyReplicas, timeout))
 }
 
 // spawnJob creates the loadgen Job for cr and moves it to Running.
@@ -458,7 +465,8 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 	}
 	if err != nil {
 		log.Error(err, "resolve target URL")
-		return r.setPhase(ctx, cr, PhaseError)
+		return r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonTargetURLUnresolved,
+			fmt.Sprintf("could not resolve the target URL: %v", err))
 	}
 
 	if terminal, err := r.validateTLSCABundle(ctx, cr); err != nil {
@@ -473,7 +481,8 @@ func (r *ScaleValidationReconciler) spawnJob(ctx context.Context, cr *v1alpha1.S
 	}
 	if err != nil {
 		log.Error(err, "build loadgen job")
-		return r.setPhase(ctx, cr, PhaseError)
+		return r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonJobBuildFailed,
+			fmt.Sprintf("could not build the loadgen Job: %v", err))
 	}
 	if err := controllerutil.SetControllerReference(cr, job, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("set owner reference: %w", err)
@@ -581,7 +590,7 @@ func (r *ScaleValidationReconciler) failTLSCABundle(ctx context.Context, cr *v1a
 	r.eventf(cr, corev1.EventTypeWarning, EventReasonTLSCABundleMissing, "%s", msg)
 	metrics.RunsTotal.WithLabelValues(cr.Namespace, cr.Name, metrics.VerdictUnknown).Inc()
 	metrics.DiagnosticAlertsTotal.WithLabelValues(cr.Namespace, cr.Name, "TLSCABundleMissing", "Critical").Inc()
-	_, err := r.setPhase(ctx, cr, PhaseError)
+	_, err := r.setTerminalPhase(ctx, cr, PhaseError, FinishedReasonTLSCABundleMissing, msg)
 	return err
 }
 

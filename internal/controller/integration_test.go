@@ -232,6 +232,27 @@ func createObserverPod(t *testing.T, ns, crName string) {
 	}
 }
 
+// assertFinished checks that a terminal CR carries Finished=True with the
+// expected reason. Every terminal path must set it: a CI gate blocking on
+// `kubectl wait --for=condition=Finished` hangs until its own timeout
+// against any path that forgets, which is the failure ENG-149 removes.
+func assertFinished(t *testing.T, cr *v1alpha1.ScaleValidation, wantReason string) {
+	t.Helper()
+	cond := meta.FindStatusCondition(cr.Status.Conditions, ConditionFinished)
+	if cond == nil {
+		t.Fatalf("no %s condition on a terminal CR (phase=%s)", ConditionFinished, cr.Status.Phase)
+	}
+	if cond.Status != metav1.ConditionTrue {
+		t.Errorf("%s = %s, want True", ConditionFinished, cond.Status)
+	}
+	if cond.Reason != wantReason {
+		t.Errorf("%s reason = %s, want %s", ConditionFinished, cond.Reason, wantReason)
+	}
+	if cond.ObservedGeneration != cr.Generation {
+		t.Errorf("observedGeneration = %d, want %d", cond.ObservedGeneration, cr.Generation)
+	}
+}
+
 // --- tests -----------------------------------------------------------------
 
 func TestIntegration_PendingThenRunning(t *testing.T) {
@@ -275,9 +296,11 @@ func TestIntegration_JobVanishedDuringRun(t *testing.T) {
 	}
 
 	reconcileCR(t, r, ns, "run")
-	if got := getCR(t, ns, "run").Status.Phase; got != PhaseError {
-		t.Fatalf("phase = %q, want Error after the job vanished", got)
+	cr = getCR(t, ns, "run")
+	if cr.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error after the job vanished", cr.Status.Phase)
 	}
+	assertFinished(t, cr, FinishedReasonLoadgenJobVanished)
 }
 
 func TestIntegration_JobFailedConditionIsError(t *testing.T) {
@@ -291,9 +314,11 @@ func TestIntegration_JobFailedConditionIsError(t *testing.T) {
 	failJob(t, ns, "run-loadgen")
 
 	reconcileCR(t, r, ns, "run")
-	if got := getCR(t, ns, "run").Status.Phase; got != PhaseError {
-		t.Fatalf("phase = %q, want Error after job failed", got)
+	failed := getCR(t, ns, "run")
+	if failed.Status.Phase != PhaseError {
+		t.Fatalf("phase = %q, want Error after job failed", failed.Status.Phase)
 	}
+	assertFinished(t, failed, FinishedReasonLoadgenJobFailed)
 }
 
 func TestIntegration_FinishRunSucceeded(t *testing.T) {
@@ -327,6 +352,7 @@ func TestIntegration_FinishRunSucceeded(t *testing.T) {
 	if got.Status.Phase != PhaseSucceeded {
 		t.Fatalf("phase = %q, want Succeeded", got.Status.Phase)
 	}
+	assertFinished(t, got, FinishedReasonSucceeded)
 	if got.Status.TotalRequests != 5000 || got.Status.FailedRequests != 3 {
 		t.Errorf("metrics = %d/%d, want 5000/3", got.Status.TotalRequests, got.Status.FailedRequests)
 	}
@@ -364,6 +390,7 @@ func TestIntegration_FinishRunFailedVerdict(t *testing.T) {
 	createObserverPod(t, ns, "run")
 
 	reconcileCR(t, r, ns, "run")
+	assertFinished(t, getCR(t, ns, "run"), FinishedReasonVerdictFailed)
 	if got := getCR(t, ns, "run").Status.Phase; got != PhaseFailed {
 		t.Fatalf("phase = %q, want Failed when the SLA verdict failed", got)
 	}
@@ -553,6 +580,7 @@ func TestIntegration_UnknownTargetKind_FailsFast(t *testing.T) {
 	if cr.Status.Phase != PhaseError {
 		t.Fatalf("phase = %q, want Error for an unresolvable targetRef kind", cr.Status.Phase)
 	}
+	assertFinished(t, cr, FinishedReasonTargetUnsupported)
 	var found *v1alpha1.DiagnosticAlert
 	for i := range cr.Status.Diagnostics {
 		if cr.Status.Diagnostics[i].Type == "TargetUnsupported" {
@@ -567,6 +595,62 @@ func TestIntegration_UnknownTargetKind_FailsFast(t *testing.T) {
 	}
 	if reasons := drainEventReasons(t, r); !slices.Contains(reasons, EventReasonTargetUnresolvable) {
 		t.Errorf("Events = %v, want %s", reasons, EventReasonTargetUnresolvable)
+	}
+}
+
+// TestIntegration_FinishedCondition_AbsentUntilTerminal is the CI-gate
+// contract ENG-149 exists for. `kubectl wait --for=condition=Finished`
+// must block for as long as the run is in flight and return the moment it
+// ends, whichever way it ends. If the condition appeared early a gate
+// would pass a run that had not finished; if it never appeared on a
+// failure path the gate would hang until its own --timeout, which is the
+// behaviour this replaces.
+func TestIntegration_FinishedCondition_AbsentUntilTerminal(t *testing.T) {
+	ns := newTestNamespace(t)
+	r := newReconciler()
+	line, err := observer.MarshalReportLine(observer.Report{
+		SLAStatus:        observer.VerdictFail,
+		TrafficIntegrity: observer.VerdictPass,
+		TotalRequests:    100,
+		FailedRequests:   0,
+	})
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	r.observerLogFn = func(context.Context, *corev1.Pod) ([]byte, error) {
+		return []byte(line + "\n"), nil
+	}
+
+	mustCreateReadyTarget(t, ns, "app")
+	mustCreate(t, newScaleValidation(ns, "run", nil))
+
+	reconcileCR(t, r, ns, "run") // -> Pending
+	if cond := meta.FindStatusCondition(getCR(t, ns, "run").Status.Conditions, ConditionFinished); cond != nil {
+		t.Fatalf("%s set while Pending: %+v", ConditionFinished, cond)
+	}
+
+	reconcileCR(t, r, ns, "run") // -> Running
+	running := getCR(t, ns, "run")
+	if running.Status.Phase != PhaseRunning {
+		t.Fatalf("phase = %q, want Running", running.Status.Phase)
+	}
+	if cond := meta.FindStatusCondition(running.Status.Conditions, ConditionFinished); cond != nil {
+		t.Fatalf("%s set while Running: %+v", ConditionFinished, cond)
+	}
+
+	completeJob(t, ns, "run-loadgen")
+	createObserverPod(t, ns, "run")
+	reconcileCR(t, r, ns, "run") // -> Failed verdict
+
+	done := getCR(t, ns, "run")
+	if done.Status.Phase != PhaseFailed {
+		t.Fatalf("phase = %q, want Failed", done.Status.Phase)
+	}
+	// The whole point: a losing verdict still sets Finished=True, so the
+	// gate unblocks and reads the phase rather than timing out.
+	assertFinished(t, done, FinishedReasonVerdictFailed)
+	if cond := meta.FindStatusCondition(done.Status.Conditions, ConditionFinished); !strings.Contains(cond.Message, "SLA=Fail") {
+		t.Errorf("condition message = %q, want it to carry the verdict", cond.Message)
 	}
 }
 
@@ -681,6 +765,7 @@ func TestIntegration_TLSCABundle_Missing(t *testing.T) {
 	if got.Status.Phase != PhaseError {
 		t.Fatalf("phase = %q, want Error after missing CA bundle", got.Status.Phase)
 	}
+	assertFinished(t, got, FinishedReasonTLSCABundleMissing)
 	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "TLSCABundleMissing" {
 		t.Errorf("diagnostics = %+v, want one TLSCABundleMissing alert", got.Status.Diagnostics)
 	}
@@ -715,6 +800,7 @@ func TestIntegration_TLSCABundle_MissingKey(t *testing.T) {
 	if got.Status.Phase != PhaseError {
 		t.Fatalf("phase = %q, want Error when CA key is missing", got.Status.Phase)
 	}
+	assertFinished(t, got, FinishedReasonTLSCABundleMissing)
 	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "TLSCABundleMissing" {
 		t.Errorf("diagnostics = %+v, want one TLSCABundleMissing alert", got.Status.Diagnostics)
 	}
@@ -873,6 +959,7 @@ func TestIntegration_TargetNotReady_TimesOut(t *testing.T) {
 	if got.Status.Phase != PhaseError {
 		t.Fatalf("phase = %q, want Error after readiness timeout", got.Status.Phase)
 	}
+	assertFinished(t, got, FinishedReasonTargetNotReady)
 	if len(got.Status.Diagnostics) != 1 || got.Status.Diagnostics[0].Type != "TargetNotReady" {
 		t.Errorf("diagnostics = %+v, want one TargetNotReady alert", got.Status.Diagnostics)
 	}
