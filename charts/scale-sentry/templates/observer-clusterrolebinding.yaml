@@ -1,10 +1,10 @@
 {{- if .Values.rbac.create -}}
 # Cluster-scoped binding for the observer SA's kubelet cAdvisor scrape.
 # The Role / RoleBinding for the namespaced reads live in
-# observer-rbac.yaml (symlinked from config/rbac/observer_role.yaml); the
-# ClusterRole itself ships in that same file. Only the binding needs Helm
-# templating, because cluster-scoped bindings have to name the SA's
-# namespace explicitly and the release namespace is only known here.
+# observer-rbac.yaml, along with the ClusterRole this binds to. Only the
+# binding needs the namespace list, because cluster-scoped bindings have
+# to name each SA's namespace explicitly.
+{{- $namespaces := prepend (.Values.observer.namespaces | default list) .Release.Namespace | uniq }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -16,7 +16,9 @@ roleRef:
   kind: ClusterRole
   name: scale-sentry-observer-cadvisor
 subjects:
+{{- range $ns := $namespaces }}
 - kind: ServiceAccount
-  name: scale-sentry-observer
-  namespace: {{ .Release.Namespace }}
+  name: {{ $.Values.observerServiceAccount }}
+  namespace: {{ $ns }}
+{{- end }}
 {{- end -}}

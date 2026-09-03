@@ -58,7 +58,18 @@ The observer Job runs alongside the workload it is validating, so it gets a `Rol
 | `discovery.k8s.io/endpointslices`          | list, watch     | Detect EndpointSlice updates for leakage analysis.  |
 | `autoscaling/horizontalpodautoscalers`     | get, list       | Watch HPA decisions, measure scale-up latency.      |
 
-If a `ScaleValidation` CR is created in a namespace other than where the chart was installed, the observer `Role` and `RoleBinding` need to be applied to that namespace separately. See [`config/rbac/observer_role.yaml`](https://github.com/ethan-kane-ops/scale-sentry/blob/main/config/rbac/observer_role.yaml).
+The observer needs this `Role` in **every namespace that runs validations**, not just the one the chart was installed into. List the extras and the chart renders a full set (ServiceAccount, `Role`, `RoleBinding`) into each, and adds every ServiceAccount as a subject on the cAdvisor `ClusterRoleBinding`:
+
+```yaml
+observer:
+  namespaces:
+    - staging
+    - payments
+```
+
+The release namespace is always covered, so the default is unchanged. A `ScaleValidation` in a namespace missing from the list produces an observer that cannot read the target's scale subresource, pods, EndpointSlices or HPA, and the run degrades to an `Unknown` verdict for reasons unrelated to the workload.
+
+For a non-Helm install, apply [`config/rbac/observer_role.yaml`](https://github.com/ethan-kane-ops/scale-sentry/blob/main/config/rbac/observer_role.yaml) into each namespace with `kubectl apply -n <ns> -f`. It stays the canonical source of the rules, and `just observer-rbac-check` diffs it against the chart so the two cannot drift.
 
 ### Observer `ClusterRole` (cAdvisor proxy)
 

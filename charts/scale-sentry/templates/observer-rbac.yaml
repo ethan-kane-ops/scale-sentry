@@ -1,1 +1,99 @@
-../../../config/rbac/observer_role.yaml
+# RBAC for the loadgen Job's observer sidecar, rendered once per namespace
+# that runs validations. The rules mirror config/rbac/observer_role.yaml,
+# which stays the canonical hand-written source and the standalone
+# (non-Helm) install path; `just observer-rbac-check` diffs the two so they
+# cannot drift.
+#
+# This was a symlink to that file until ENG-151. A static file can only
+# ever land in the release namespace, which meant a ScaleValidation in any
+# other namespace produced an observer with no permissions and a run that
+# degraded to an Unknown verdict for reasons unrelated to the workload.
+{{- $namespaces := prepend (.Values.observer.namespaces | default list) .Release.Namespace | uniq }}
+{{- $sa := .Values.observerServiceAccount }}
+# Cluster-scoped read for kubelet cAdvisor scraping. The verb is `get` on
+# the nodes/proxy subresource, read-only and substantially lower privilege
+# than the original `pods/exec` (`create`) on every workload container in
+# the namespace. Cluster-scoped, so it is rendered once regardless of how
+# many namespaces are listed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scale-sentry-observer-cadvisor
+  labels:
+    {{- include "scale-sentry.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes/proxy
+  verbs:
+  - get
+{{- range $ns := $namespaces }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $sa }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "scale-sentry.labels" $ | nindent 4 }}
+---
+# The observer reads the target workload's scale subresource, HPA,
+# EndpointSlices and pods within this namespace. The workload itself is
+# never read whole: the scale subresource carries the label selector the
+# observer needs and nothing else. Targets outside apps/v1 need their own
+# `<resource>/scale` grant added to config/rbac/observer_role.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scale-sentry-observer
+  namespace: {{ $ns }}
+  labels:
+    {{- include "scale-sentry.labels" $ | nindent 4 }}
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  - replicasets/scale
+  - statefulsets/scale
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scale-sentry-observer
+  namespace: {{ $ns }}
+  labels:
+    {{- include "scale-sentry.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scale-sentry-observer
+subjects:
+- kind: ServiceAccount
+  name: {{ $sa }}
+  namespace: {{ $ns }}
+{{- end }}

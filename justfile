@@ -205,6 +205,27 @@ dev-up: kind-create kind-load deploy metrics-server
 # Tear down the dev cluster
 dev-down: undeploy kind-delete
 
+# Verify the chart's observer Role + cAdvisor ClusterRole rules match
+# config/rbac/observer_role.yaml. That file was symlinked into the chart
+# until ENG-151; templating it per namespace made a symlink impossible, so
+# this recipe is the drift gate that replaces the symlink's guarantee.
+observer-rbac-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rendered=$(helm template scale-sentry charts/scale-sentry \
+        --show-only templates/observer-rbac.yaml 2>/dev/null)
+    for kind in Role ClusterRole; do
+        chart_rules=$(echo "$rendered" | yq -o json "select(.kind == \"$kind\") | .rules")
+        config_rules=$(yq -o json "select(.kind == \"$kind\") | .rules" config/rbac/observer_role.yaml)
+        if ! diff <(echo "$chart_rules") <(echo "$config_rules") >/dev/null; then
+            echo "✗ chart observer $kind has drifted from config/rbac/observer_role.yaml"
+            echo "  Sync the rules block in charts/scale-sentry/templates/observer-rbac.yaml."
+            diff <(echo "$chart_rules") <(echo "$config_rules") || true
+            exit 1
+        fi
+    done
+    echo "✓ chart observer RBAC matches config/rbac/observer_role.yaml"
+
 # Verify the chart's manager ClusterRole rules match config/rbac/role.yaml.
 # The chart hand-templates RBAC so it can release-name-prefix the ClusterRole;
 # this recipe is the drift gate that keeps it honest with the kubebuilder
