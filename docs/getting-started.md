@@ -15,6 +15,21 @@ Without `--version` this resolves the latest released chart; add `--version X.Y.
 !!! tip "Verify before you install"
     Every released image and the chart are cosign-signed. See [Security](security.md) for the verification command.
 
+## Upgrading
+
+Helm installs the CRD from the chart's `crds/` directory on first install and never touches it again, so `helm upgrade` on its own leaves the old CRD in place. Apply the chart's CRD yourself, then upgrade:
+
+```bash
+helm show crds oci://ghcr.io/ethan-kane-ops/charts/scale-sentry | kubectl apply -f -
+helm upgrade scale-sentry oci://ghcr.io/ethan-kane-ops/charts/scale-sentry \
+  --namespace scale-sentry
+```
+
+Reading the CRD out of the chart keeps the two in lockstep. Add `--version X.Y.Z` to both commands to move to a specific release.
+
+!!! warning "v0.5.0 removes `v1alpha1`"
+    `ScaleValidation` is served at `v1beta1` only. There is no conversion webhook, so existing `v1alpha1` objects are not converted and the apiserver will reject them. Delete them before upgrading, then recreate them with `apiVersion: validation.scale-sentry.ek.co/v1beta1`.
+
 ## Container images
 
 | Image | Role |

@@ -12,7 +12,7 @@ This is a statement of direction, not a promise of dates. Items move when eviden
   visible from `kubectl get -o json` without a metrics stack. A one-shot validation fills one
   entry; `spec.schedule` (below) is what accumulates the rest.
 
-## Next (unreleased)
+## Delivered in v0.5.0
 
 - **`v1beta1`**: the API graduated. See below for what changed and what it commits us to.
 - **Recurring validation**: `spec.schedule` re-runs a validation on a cron expression and
