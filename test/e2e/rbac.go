@@ -38,6 +38,7 @@ func applyObserverRBAC(t *testing.T, c client.Client, ctx context.Context, ns st
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}},
 			{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"list", "watch"}},
 			{APIGroups: []string{"autoscaling"}, Resources: []string{"horizontalpodautoscalers"}, Verbs: []string{"get", "list"}},
+			{APIGroups: []string{"policy"}, Resources: []string{"poddisruptionbudgets"}, Verbs: []string{"list"}},
 		},
 	})
 	mustCreate(t, c, ctx, &rbacv1.RoleBinding{

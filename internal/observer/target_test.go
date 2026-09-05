@@ -8,14 +8,19 @@ import (
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/utils/ptr"
+
+	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 )
 
 func TestApplyTargetDefaults(t *testing.T) {
@@ -226,5 +231,139 @@ func TestResolveTarget_NoPodsBehindSelector(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "has no pods") {
 		t.Errorf("error = %q, want it to say the workload has no pods", err)
+	}
+}
+
+// scaleReplicasSession wires a Session whose scale reads report replicas,
+// with the supplied objects loaded into the typed fake clientset.
+func scaleReplicasSession(t *testing.T, replicas int64, objs ...runtime.Object) *Session {
+	t.Helper()
+	return scaleReactorSession(t, func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &unstructured.Unstructured{Object: map[string]any{
+			"status": map[string]any{"replicas": replicas, "selector": "app=demo"},
+		}}, nil
+	}, objs...)
+}
+
+func victimPod(dnsConfig *corev1.PodDNSConfig) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "app-1", Namespace: "demo", Labels: map[string]string{"app": "demo"},
+		},
+		Spec: corev1.PodSpec{DNSConfig: dnsConfig},
+	}
+}
+
+func budget(name string, minAvailable intstr.IntOrString, selector map[string]string) *policyv1.PodDisruptionBudget {
+	return &policyv1.PodDisruptionBudget{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "demo"},
+		Spec: policyv1.PodDisruptionBudgetSpec{
+			MinAvailable: &minAvailable,
+			Selector:     &metav1.LabelSelector{MatchLabels: selector},
+		},
+	}
+}
+
+func diagTypes(alerts []v1beta1.DiagnosticAlert) map[string]bool {
+	out := map[string]bool{}
+	for _, a := range alerts {
+		out[a.Type] = true
+	}
+	return out
+}
+
+// The DNS and PDB analyzers shipped unwired: both packages existed, were
+// unit-tested, and were advertised in the README, but nothing in the
+// observer imported them, so DNSNdotsHigh / MissingPDB could never appear
+// on a run. These cover the wiring, not the analyzers' own logic.
+func TestCollectResilience_UncoveredWorkloadWithDefaultDNS(t *testing.T) {
+	pod := victimPod(nil) // no dnsConfig: inherits the ndots:5 default
+	s := scaleReplicasSession(t, 3, pod)
+
+	got := s.collectResilience(context.Background(), &target{samplePod: pod, selector: "app=demo"})
+	if got.dns == nil {
+		t.Fatal("dns report is nil, want the ndots audit to have run")
+	}
+	if got.dns.NDots != 5 || got.dns.Explicit {
+		t.Errorf("dns report = %+v, want the implicit Kubernetes default of 5", *got.dns)
+	}
+	if got.pdb == nil {
+		t.Fatal("pdb report is nil, want the coverage audit to have run")
+	}
+	if got.pdb.Covered() {
+		t.Errorf("pdb report = %+v, want no matching budget", *got.pdb)
+	}
+	if got.pdb.Replicas != 3 {
+		t.Errorf("pdb replicas = %d, want 3 from the scale subresource", got.pdb.Replicas)
+	}
+
+	types := diagTypes(append(got.dns.Diagnostics(), got.pdb.Diagnostics()...))
+	if !types["DNSNdotsHigh"] || !types["MissingPDB"] {
+		t.Errorf("diagnostics = %v, want both DNSNdotsHigh and MissingPDB", types)
+	}
+}
+
+func TestCollectResilience_CoveredWorkloadWithTunedDNS(t *testing.T) {
+	pod := victimPod(&corev1.PodDNSConfig{
+		Options: []corev1.PodDNSConfigOption{{Name: "ndots", Value: ptr.To("2")}},
+	})
+	s := scaleReplicasSession(t, 3, pod, budget("app", intstr.FromInt32(1), map[string]string{"app": "demo"}))
+
+	got := s.collectResilience(context.Background(), &target{samplePod: pod, selector: "app=demo"})
+	if got.dns == nil || len(got.dns.Diagnostics()) != 0 {
+		t.Errorf("dns diagnostics = %+v, want none for an explicit ndots:2", got.dns)
+	}
+	if got.pdb == nil || !got.pdb.Covered() {
+		t.Errorf("pdb report = %+v, want the matching budget", got.pdb)
+	}
+	if alerts := got.pdb.Diagnostics(); len(alerts) != 0 {
+		t.Errorf("pdb diagnostics = %+v, want none: minAvailable 1 of 3 permits eviction", alerts)
+	}
+}
+
+// A budget that mathematically forbids every eviction is a separate
+// finding from having no budget at all, and it is replica-count
+// dependent: minAvailable 3 is fine at 5 replicas and blocks drains
+// entirely at 3. The audit therefore has to read the replica count the
+// run settled on, not the one it started from.
+func TestCollectResilience_BudgetBlocksEvictionAtCurrentReplicas(t *testing.T) {
+	pod := victimPod(nil)
+	pdbObj := budget("app", intstr.FromInt32(3), map[string]string{"app": "demo"})
+	s := scaleReplicasSession(t, 3, pod, pdbObj)
+
+	got := s.collectResilience(context.Background(), &target{samplePod: pod, selector: "app=demo"})
+	if got.pdb == nil {
+		t.Fatal("pdb report is nil")
+	}
+	if !diagTypes(got.pdb.Diagnostics())["PDBBlocksEviction"] {
+		t.Errorf("diagnostics = %+v, want PDBBlocksEviction at minAvailable=3 of 3 replicas", got.pdb.Diagnostics())
+	}
+}
+
+// Namespaces whose observer RBAC predates the poddisruptionbudgets grant
+// must degrade to "no PDB verdict", never to a failed run.
+func TestCollectResilience_PDBListForbiddenStillReportsDNS(t *testing.T) {
+	pod := victimPod(nil)
+	s := scaleReplicasSession(t, 1, pod)
+	s.clientset.(*kubefake.Clientset).PrependReactor("list", "poddisruptionbudgets",
+		func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(
+				schema.GroupResource{Group: "policy", Resource: "poddisruptionbudgets"}, "", errors.New("no access"))
+		})
+
+	got := s.collectResilience(context.Background(), &target{samplePod: pod, selector: "app=demo"})
+	if got.pdb != nil {
+		t.Errorf("pdb report = %+v, want nil when the list is forbidden", *got.pdb)
+	}
+	if got.dns == nil {
+		t.Error("dns report is nil, a forbidden PDB list must not suppress the DNS audit")
+	}
+}
+
+func TestCollectResilience_NilTarget(t *testing.T) {
+	s := scaleReplicasSession(t, 1)
+	got := s.collectResilience(context.Background(), nil)
+	if got.dns != nil || got.pdb != nil {
+		t.Errorf("resilience = %+v, want both halves nil for a nil target", got)
 	}
 }

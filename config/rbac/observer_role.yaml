@@ -1,6 +1,6 @@
 # RBAC for the loadgen Job's observer sidecar. The observer reads the
-# target workload's scale subresource, HPA, EndpointSlices, and pods
-# within a single namespace, and scrapes the kubelet's cAdvisor
+# target workload's scale subresource, HPA, EndpointSlices, pods, and
+# PodDisruptionBudgets within a single namespace, and scrapes the cAdvisor
 # `/metrics/cadvisor` endpoint through the apiserver proxy for CFS
 # throttle counters.
 #
@@ -53,6 +53,12 @@ rules:
   - horizontalpodautoscalers
   verbs:
   - get
+  - list
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
   - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1

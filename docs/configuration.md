@@ -121,6 +121,16 @@ Stack details and trade-offs are in [Protocols](protocols.md).
 
 Why open-loop arrival models produce honest p99 numbers is covered in [Load Profiles](load-profiles.md).
 
+## Resilience audits
+
+Every run also audits the target's declared posture, independently of the traffic verdict. These read configuration rather than samples, so they fire even on a run that passes its SLA:
+
+- `DNSNdotsHigh`: the target's pods resolve with `ndots:5` (the Kubernetes default), so every non-FQDN lookup walks the search list first and multiplies CoreDNS queries.
+- `MissingPDB`: no `PodDisruptionBudget` selects the workload, so a node drain can evict every replica at once.
+- `PDBBlocksEviction`: a matching budget permits zero voluntary evictions at the replica count the run settled on, so node drains hang instead.
+
+The PDB audit needs `list` on `poddisruptionbudgets` in the validating namespace; the chart grants it. Without the grant the run completes and simply carries no PDB verdict.
+
 ## TLS
 
 For `https://` targets fronted by a private CA, point the loadgen at a CA bundle shipped in a ConfigMap:
