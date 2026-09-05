@@ -30,6 +30,5 @@ spec:
 
   load:
     baseRps: 200
-    concurrencyFactor: 50
     profile:
       pattern: Poisson

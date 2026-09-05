@@ -83,7 +83,7 @@ func newScaleValidation(ns, name string, mod func(*v1beta1.ScaleValidation)) *v1
 			},
 			SLA:    metav1.Duration{Duration: time.Minute},
 			Target: v1beta1.TargetConfig{Mode: "ServiceDefault", Port: 8080, NetworkPath: "ClusterIP"},
-			Load:   v1beta1.LoadConfig{BaseRPS: 100, ConcurrencyFactor: 10},
+			Load:   v1beta1.LoadConfig{BaseRPS: 100},
 		},
 	}
 	if mod != nil {

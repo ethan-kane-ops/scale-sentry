@@ -24,7 +24,6 @@ The scale-sentry loadgen also applies the **scheduled-arrival fix** for coordina
 spec:
   load:
     baseRps: 200
-    concurrencyFactor: 50
     profile:
       pattern: Ramp
       endRps: 800
@@ -39,7 +38,6 @@ spec:
 spec:
   load:
     baseRps: 200
-    concurrencyFactor: 50
     warmupDuration: 30s   # 30s warmup then the measurement window
     profile:
       pattern: Poisson
@@ -55,7 +53,6 @@ The `Spike` pattern stitches one or more elevated-rate windows into a `baseRps` 
 spec:
   load:
     baseRps: 100
-    concurrencyFactor: 50
     profile:
       pattern: Spike
       spikes:

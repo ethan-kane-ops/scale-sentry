@@ -56,7 +56,7 @@ func TestE2E_FinalizerCleansUpJobs(t *testing.T) {
 			// Long SLA keeps the run in-flight so the delete lands mid-run.
 			SLA:    metav1.Duration{Duration: 5 * time.Minute},
 			Target: v1beta1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
-			Load:   v1beta1.LoadConfig{BaseRPS: 5, ConcurrencyFactor: 1},
+			Load:   v1beta1.LoadConfig{BaseRPS: 5},
 		},
 	}
 	mustCreate(t, c, ctx, cr)

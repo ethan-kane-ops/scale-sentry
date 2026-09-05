@@ -21,7 +21,6 @@ spec:
     networkPath: ClusterIP
   load:
     baseRps: 100
-    concurrencyFactor: 10
   disruption:
     injectPodDeletion: true
     minReplicasForChaos: 2

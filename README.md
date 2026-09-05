@@ -83,7 +83,6 @@ spec:
 
   load:
     baseRps: 150
-    concurrencyFactor: 50
     warmupDuration: 15s
     profile:
       pattern: Ramp            # Constant | Poisson | Ramp | Step | Spike

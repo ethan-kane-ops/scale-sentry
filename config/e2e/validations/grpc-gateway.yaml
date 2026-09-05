@@ -20,6 +20,5 @@ spec:
     host: envoy-scale-sentry-e2e-scale-sentry-eg-a090755d.envoy-gateway-system.svc.cluster.local
   load:
     baseRps: 200
-    concurrencyFactor: 50
     profile:
       pattern: Poisson

@@ -36,7 +36,6 @@ spec:
     protocol: GRPC
   load:
     baseRps: 200
-    concurrencyFactor: 50
     profile:
       pattern: Poisson
 ```

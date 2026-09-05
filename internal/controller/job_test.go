@@ -34,7 +34,7 @@ func testCR(mod func(*v1beta1.ScaleValidation)) *v1beta1.ScaleValidation {
 			Target: v1beta1.TargetConfig{
 				Mode: "ServiceDefault", Port: 8080, NetworkPath: "ClusterIP",
 			},
-			Load: v1beta1.LoadConfig{BaseRPS: 150, ConcurrencyFactor: 10},
+			Load: v1beta1.LoadConfig{BaseRPS: 150},
 		},
 	}
 	if mod != nil {
@@ -571,5 +571,50 @@ func TestJobConditionTrue(t *testing.T) {
 				t.Errorf("jobConditionTrue = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// spec.load.concurrency is the replacement for the never-implemented
+// concurrencyFactor: it reaches the load generator as --concurrency and
+// fixes the worker pool, rather than being silently dropped.
+func TestLoadgenArgs_Concurrency(t *testing.T) {
+	cr := testCR(func(cr *v1beta1.ScaleValidation) {
+		cr.Spec.Load.Concurrency = 400
+	})
+	args, err := loadgenArgs(cr, "http://app.demo.svc.cluster.local:8080/", "")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
+	assertFlags(t, args, map[string]string{"--concurrency": "400"})
+}
+
+// Zero means "derive the pool from the peak rate", which is the
+// loadgen's own default, so the flag stays off the command line rather
+// than pinning the pool to zero workers. The field is a plain int32, so
+// unset and an explicit 0 are the same value and the same behaviour.
+func TestLoadgenArgs_ConcurrencyOmittedWhenZero(t *testing.T) {
+	cr := testCR(func(cr *v1beta1.ScaleValidation) { cr.Spec.Load.Concurrency = 0 })
+	args, err := loadgenArgs(cr, "http://app.demo.svc.cluster.local:8080/", "")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
+	if slices.Contains(args, "--concurrency") {
+		t.Errorf("--concurrency should be omitted so the loadgen derives the pool: %v", args)
+	}
+}
+
+// concurrencyFactor is served but does nothing. Pinning that in a test
+// stops a future change from quietly reviving it as a rate multiplier,
+// which would move the effective RPS of every manifest that still sets it.
+func TestLoadgenArgs_ConcurrencyFactorIsInert(t *testing.T) {
+	//nolint:staticcheck // exercising the deprecated field is the point: it must stay inert.
+	cr := testCR(func(cr *v1beta1.ScaleValidation) { cr.Spec.Load.ConcurrencyFactor = 50 })
+	args, err := loadgenArgs(cr, "http://app.demo.svc.cluster.local:8080/", "")
+	if err != nil {
+		t.Fatalf("loadgenArgs: %v", err)
+	}
+	assertFlags(t, args, map[string]string{"--rps": "150"})
+	if slices.Contains(args, "--concurrency") {
+		t.Errorf("concurrencyFactor must not reach --concurrency: %v", args)
 	}
 }

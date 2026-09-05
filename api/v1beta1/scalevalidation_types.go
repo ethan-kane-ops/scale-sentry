@@ -121,8 +121,31 @@ type LoadConfig struct {
 	// BaseRPS is the starting requests-per-second before dynamic scaling.
 	BaseRPS int32 `json:"baseRps"`
 
-	// ConcurrencyFactor is multiplied by CPU cores to compute target RPS.
-	ConcurrencyFactor int32 `json:"concurrencyFactor"`
+	// ConcurrencyFactor does nothing. It was specified as a per-core
+	// multiplier folded into the target rate, but no release ever
+	// implemented it: the controller has always passed BaseRPS to the
+	// load generator unchanged. It stays served, and optional, so
+	// manifests written against the old required field keep validating.
+	//
+	// +optional
+	//
+	// Deprecated: use Concurrency to size the in-flight worker pool.
+	// Scheduled for removal in v0.7.0.
+	ConcurrencyFactor int32 `json:"concurrencyFactor,omitempty"`
+
+	// Concurrency fixes the load generator's worker-pool size, the
+	// ceiling on requests in flight at once. Unset (or 0) derives it
+	// from the peak arrival rate, capped at 256, which is correct for
+	// targets that answer quickly.
+	//
+	// Raise it when the target is slow enough that the derived pool
+	// cannot keep the schedule: a backend answering in 500ms at 1000 RPS
+	// needs ~500 requests in flight, and a 256-worker pool would throttle
+	// arrivals into a closed loop, understating the latency a real
+	// open-loop client would see.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	Concurrency int32 `json:"concurrency,omitempty"`
 
 	// WarmupDuration runs traffic against the target before the
 	// measurement window opens. Requests are sent (so TCP/TLS handshakes
