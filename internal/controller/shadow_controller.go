@@ -31,10 +31,9 @@ const (
 
 // Defaults applied when the optional shadow annotations are absent.
 const (
-	shadowDefaultPort              = int32(80)
-	shadowDefaultSLA               = 5 * time.Minute
-	shadowDefaultBaseRPS           = int32(50)
-	shadowDefaultConcurrencyFactor = int32(10)
+	shadowDefaultPort    = int32(80)
+	shadowDefaultSLA     = 5 * time.Minute
+	shadowDefaultBaseRPS = int32(50)
 )
 
 // DeploymentShadowReconciler creates a ScaleValidation for any Deployment
@@ -132,8 +131,7 @@ func shadowScaleValidation(deploy *appsv1.Deployment, name string) (*v1beta1.Sca
 				NetworkPath: "ClusterIP",
 			},
 			Load: v1beta1.LoadConfig{
-				BaseRPS:           baseRPS,
-				ConcurrencyFactor: shadowDefaultConcurrencyFactor,
+				BaseRPS: baseRPS,
 			},
 		},
 	}, nil

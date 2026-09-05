@@ -18,6 +18,5 @@ spec:
     protocol: HTTP1
   load:
     baseRps: 200
-    concurrencyFactor: 50
     profile:
       pattern: Poisson

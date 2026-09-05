@@ -25,4 +25,3 @@ spec:
 
   load:
     baseRps: 200
-    concurrencyFactor: 50

@@ -17,4 +17,3 @@ spec:
     networkPath: ClusterIP
   load:
     baseRps: 150
-    concurrencyFactor: 10

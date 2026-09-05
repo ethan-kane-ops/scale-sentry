@@ -41,4 +41,3 @@ spec:
           key: ca.crt
   load:
     baseRps: 100
-    concurrencyFactor: 10

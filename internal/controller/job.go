@@ -151,6 +151,9 @@ func loadgenArgs(cr *v1beta1.ScaleValidation, url, caBundlePath string) ([]strin
 		"--network-path", string(cr.Spec.Target.NetworkPath),
 		"--result-file", resultFilePath,
 	}
+	if c := cr.Spec.Load.Concurrency; c > 0 {
+		args = append(args, "--concurrency", strconv.Itoa(int(c)))
+	}
 	if proto := cr.Spec.Target.Protocol; proto != "" {
 		args = append(args, "--protocol", string(proto))
 	}

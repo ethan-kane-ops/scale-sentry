@@ -24,6 +24,25 @@ This is a statement of direction, not a promise of dates. Items move when eviden
 - **Cross-namespace observer RBAC**: `observer.namespaces` installs the observer's Role into
   every namespace that runs validations, rather than only the chart's release namespace.
 
+## In flight for v0.6.0
+
+- **`spec.load.concurrency`**: an explicit load-generator worker-pool size, the ceiling on
+  requests in flight. Unset derives it from the peak rate, capped at 256, which throttles a slow
+  target's arrivals into a closed loop and understates latency.
+
+## Deprecations
+
+| Field | Deprecated in | Removed in | Replacement |
+| --- | --- | --- | --- |
+| `spec.load.concurrencyFactor` | v0.6.0 | v0.7.0 | `spec.load.concurrency` |
+
+`concurrencyFactor` was specified as a per-core multiplier folded into the target rate, and no
+release implemented it: the controller has always passed `baseRps` to the load generator
+unchanged. It is now optional and documented as inert rather than removed outright, so manifests
+written against the old required field keep validating through one minor. This is the
+served-and-deprecated path the v1beta1 commitment below requires, applied to a field whose only
+observable behaviour was that it had none.
+
 ## API version: v1beta1
 
 `ScaleValidation` is served at `validation.scale-sentry.ek.co/v1beta1`. **`v1alpha1` is gone, not deprecated.** It is no longer served, there is no conversion webhook, and a `v1alpha1` object will be rejected by the apiserver. Recreate any that exist.

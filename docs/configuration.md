@@ -27,7 +27,6 @@ spec:
 
   load:
     baseRps: 150
-    concurrencyFactor: 50
     warmupDuration: 15s
     profile:
       pattern: Ramp            # Constant | Poisson | Ramp | Step | Spike
@@ -115,7 +114,8 @@ Stack details and trade-offs are in [Protocols](protocols.md).
 ## Load
 
 - `spec.load.baseRps`: steady-state requests per second.
-- `spec.load.concurrencyFactor`: in-flight connection multiplier driving the ramp.
+- `spec.load.concurrency`: the load generator's worker-pool size, the ceiling on requests in flight. Leave it unset and the pool is derived from the peak arrival rate, capped at 256. Raise it for slow targets: a backend answering in 500ms at 1000 RPS needs ~500 requests in flight, and the derived cap would throttle arrivals into a closed loop and understate latency.
+- `spec.load.concurrencyFactor`: **deprecated and inert**. It was specified as a per-core rate multiplier but no release implemented it; the controller has always passed `baseRps` through unchanged. Still accepted so old manifests validate, removed in v0.7.0. Use `concurrency` instead.
 - `spec.load.warmupDuration`: traffic sent before the SLA window opens; excluded from the verdict so TCP/TLS handshakes, JIT, and cache warmup do not pollute the latency histogram.
 - `spec.load.profile`: open-loop arrival shape. `pattern` picks `Constant`, `Poisson`, `Ramp`, `Step`, or `Spike`; pattern-specific knobs (`endRps`, `rampDuration`, `stepRps`, `stepDuration`, `spikes[]`) apply only to their named pattern.
 

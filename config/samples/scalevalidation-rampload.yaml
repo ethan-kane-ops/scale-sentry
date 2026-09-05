@@ -18,7 +18,6 @@ spec:
 
   load:
     baseRps: 100
-    concurrencyFactor: 50
     # 30s warmup phase: requests are sent so TCP/TLS slow-start, JIT, and
     # caches settle, but their latencies are excluded from the SLA verdict.
     warmupDuration: 30s

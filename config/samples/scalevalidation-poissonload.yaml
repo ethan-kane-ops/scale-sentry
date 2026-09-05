@@ -18,7 +18,6 @@ spec:
 
   load:
     baseRps: 200
-    concurrencyFactor: 50
     # Open-loop Poisson arrival: exponential inter-arrival times of mean
     # 1/200s, matching real user traffic. p99 numbers from this profile
     # are SLA-accurate; closed-loop constant rate systematically
