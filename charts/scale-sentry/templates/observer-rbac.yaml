@@ -39,7 +39,7 @@ metadata:
     {{- include "scale-sentry.labels" $ | nindent 4 }}
 ---
 # The observer reads the target workload's scale subresource, HPA,
-# EndpointSlices and pods within this namespace. The workload itself is
+# EndpointSlices, pods and PodDisruptionBudgets within this namespace. The workload itself is
 # never read whole: the scale subresource carries the label selector the
 # observer needs and nothing else. Targets outside apps/v1 need their own
 # `<resource>/scale` grant added to config/rbac/observer_role.yaml.
@@ -79,6 +79,12 @@ rules:
   - horizontalpodautoscalers
   verbs:
   - get
+  - list
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
   - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1

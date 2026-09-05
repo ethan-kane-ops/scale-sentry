@@ -27,6 +27,9 @@ helm upgrade scale-sentry oci://ghcr.io/ethan-kane-ops/charts/scale-sentry \
 
 Reading the CRD out of the chart keeps the two in lockstep. Add `--version X.Y.Z` to both commands to move to a specific release.
 
+!!! note "The observer needs a new RBAC rule"
+    The DNS and PodDisruptionBudget audits read `poddisruptionbudgets` in each validating namespace. `helm upgrade` renders the rule into the observer Role for every namespace in `observer.namespaces`; a namespace whose RBAC was applied by hand from `config/rbac/observer_role.yaml` needs it reapplied. Without the grant the run still completes, it just carries no PDB verdict.
+
 !!! warning "v0.5.0 removes `v1alpha1`"
     `ScaleValidation` is served at `v1beta1` only. There is no conversion webhook, so existing `v1alpha1` objects are not converted and the apiserver will reject them. Delete them before upgrading, then recreate them with `apiVersion: validation.scale-sentry.ek.co/v1beta1`.
 

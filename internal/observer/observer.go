@@ -26,9 +26,11 @@ import (
 
 	v1beta1 "github.com/ethan-kane-ops/scale-sentry/api/v1beta1"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/cgroup"
+	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/dns"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/drain"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/hpa"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/leakage"
+	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/pdb"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/probelag"
 	"github.com/ethan-kane-ops/scale-sentry/internal/loadgen"
 )
@@ -176,6 +178,7 @@ func (s *Session) Run(ctx context.Context) Report {
 	}
 
 	probeReport := s.collectProbeLag(fin, target, start)
+	res := s.collectResilience(fin, target)
 
 	var hpaReport *hpa.Report
 	if watcher != nil {
@@ -183,13 +186,25 @@ func (s *Session) Run(ctx context.Context) Report {
 		hpaReport = &r
 	}
 
-	return s.report(hpaReport, &observed{cgroup: cgReport, probelag: probeReport}, s.loadResult())
+	return s.report(hpaReport, &observed{cgroup: cgReport, probelag: probeReport, resilience: res}, s.loadResult())
 }
 
 // observed bundles the optional analyzer outputs gathered during the run.
 type observed struct {
 	cgroup   *cgroup.Report
 	probelag *probelag.Report
+	// resilience holds the configuration audits (DNS, PDB). Unlike the
+	// other analyzers these read the workload's declared posture rather
+	// than samples taken during the run, so each half is independently
+	// nil when its lookup was unavailable.
+	resilience resilience
+}
+
+// resilience bundles the configuration-audit outputs. A nil field means
+// the audit could not run (missing pod, missing RBAC), not that it passed.
+type resilience struct {
+	dns *dns.Report
+	pdb *pdb.Report
 }
 
 // report assembles the final Report from the analyzer outputs, the loadgen
@@ -215,6 +230,12 @@ func (s *Session) report(hpaReport *hpa.Report, obs *observed, load loadResult) 
 		}
 		if obs.probelag != nil {
 			diags = append(diags, obs.probelag.Diagnostics()...)
+		}
+		if obs.resilience.dns != nil {
+			diags = append(diags, obs.resilience.dns.Diagnostics()...)
+		}
+		if obs.resilience.pdb != nil {
+			diags = append(diags, obs.resilience.pdb.Diagnostics()...)
 		}
 	}
 

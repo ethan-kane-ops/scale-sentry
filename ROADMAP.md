@@ -26,6 +26,12 @@ This is a statement of direction, not a promise of dates. Items move when eviden
 
 ## In flight for v0.6.0
 
+- **The DNS and PDB auditors actually run.** Both analyzers existed, were unit-tested, and were
+  listed in the README, but nothing in the observer imported them, so `DNSNdotsHigh`,
+  `MissingPDB` and `PDBBlocksEviction` could never appear on a run. They are now evaluated at
+  finalization, against the replica count the run settled on. The observer Role gains `list` on
+  `poddisruptionbudgets`; a namespace without it degrades to no PDB verdict rather than a failed
+  run.
 - **`spec.load.concurrency`**: an explicit load-generator worker-pool size, the ceiling on
   requests in flight. Unset derives it from the peak rate, capped at 256, which throttles a slow
   target's arrivals into a closed loop and understates latency.

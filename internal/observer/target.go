@@ -11,7 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/dns"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/hpa"
+	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/pdb"
 	"github.com/ethan-kane-ops/scale-sentry/internal/analyzer/probelag"
 )
 
@@ -189,4 +191,68 @@ func readinessPeriodSeconds(pod *corev1.Pod) int32 {
 		}
 	}
 	return 0
+}
+
+// collectResilience runs the two analyzers that read cluster configuration
+// rather than run-time samples: the target's DNS resolver settings and its
+// PodDisruptionBudget coverage. Neither changes during a run, so both are
+// evaluated once at finalization, against the replica count the run
+// actually settled on rather than the cold-start count it began with (a
+// minAvailable that is harmless at five replicas does block every eviction
+// at one).
+//
+// Both are best-effort: a namespace whose RBAC predates the PDB rule
+// yields a warning and no PDB verdict, never a failed run.
+func (s *Session) collectResilience(ctx context.Context, t *target) resilience {
+	var out resilience
+	if t == nil {
+		return out
+	}
+
+	if t.samplePod != nil {
+		r, err := dns.Audit(t.samplePod.Spec.DNSConfig)
+		if err != nil {
+			warn("dns audit: %v", err)
+		} else {
+			out.dns = &r
+		}
+	}
+
+	if t.selector == "" || t.samplePod == nil {
+		return out
+	}
+	pdbs, err := s.clientset.PolicyV1().PodDisruptionBudgets(s.cfg.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		warn("list poddisruptionbudgets: %v", err)
+		return out
+	}
+	r, err := pdb.Audit(t.samplePod.Labels, s.currentReplicas(ctx, t), pdbs.Items)
+	if err != nil {
+		warn("pdb audit: %v", err)
+		return out
+	}
+	out.pdb = &r
+	return out
+}
+
+// currentReplicas reads the workload's scale subresource for the replica
+// count at finalization. Falls back to the HPA's observed count, then to
+// the number of pods matching the selector, so a scale read that fails
+// mid-teardown degrades the PDB verdict rather than dropping it.
+func (s *Session) currentReplicas(ctx context.Context, t *target) int32 {
+	scaleObj, err := s.dyn.Resource(s.cfg.targetGVR()).Namespace(s.cfg.Namespace).
+		Get(ctx, s.cfg.TargetName, metav1.GetOptions{}, "scale")
+	if err == nil {
+		if n, found, err := unstructured.NestedInt64(scaleObj.Object, "status", "replicas"); err == nil && found {
+			return int32(n)
+		}
+	}
+	if t.hpa != nil && t.hpa.Status.CurrentReplicas > 0 {
+		return t.hpa.Status.CurrentReplicas
+	}
+	pods, err := s.clientset.CoreV1().Pods(s.cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: t.selector})
+	if err != nil {
+		return 0
+	}
+	return int32(len(pods.Items))
 }
