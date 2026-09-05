@@ -367,3 +367,109 @@ func TestCollectResilience_NilTarget(t *testing.T) {
 		t.Errorf("resilience = %+v, want both halves nil for a nil target", got)
 	}
 }
+
+// currentReplicas feeds the PDB audit's blocksAll arithmetic, so a scale
+// read that fails mid-teardown has to degrade through the fallback chain
+// rather than reporting zero replicas, which would silently turn every
+// matching budget into "permits no evictions".
+func TestCurrentReplicas_FallsBackToHPAWhenScaleFails(t *testing.T) {
+	s := scaleReactorSession(t, func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewServiceUnavailable("apiserver is going away")
+	})
+	tgt := &target{
+		selector: "app=demo",
+		hpa: &autoscalingv2.HorizontalPodAutoscaler{
+			Status: autoscalingv2.HorizontalPodAutoscalerStatus{CurrentReplicas: 4},
+		},
+	}
+	if got := s.currentReplicas(context.Background(), tgt); got != 4 {
+		t.Errorf("currentReplicas = %d, want 4 from the HPA's observed count", got)
+	}
+}
+
+func TestCurrentReplicas_FallsBackToPodCount(t *testing.T) {
+	pods := []runtime.Object{
+		victimPod(nil),
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: "app-2", Namespace: "demo", Labels: map[string]string{"app": "demo"},
+		}},
+	}
+	s := scaleReactorSession(t, func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewServiceUnavailable("apiserver is going away")
+	}, pods...)
+
+	// No HPA, so the pod list behind the selector is the last resort.
+	if got := s.currentReplicas(context.Background(), &target{selector: "app=demo"}); got != 2 {
+		t.Errorf("currentReplicas = %d, want 2 from the pod list", got)
+	}
+}
+
+// Every source failing yields 0, and pdb.blocksAll treats a zero replica
+// count as "cannot tell" rather than "blocks everything", so no
+// PDBBlocksEviction is invented from a total lookup failure.
+func TestCurrentReplicas_AllSourcesFailYieldsZero(t *testing.T) {
+	s := scaleReactorSession(t, func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewServiceUnavailable("apiserver is going away")
+	})
+	s.clientset.(*kubefake.Clientset).PrependReactor("list", "pods",
+		func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewServiceUnavailable("apiserver is going away")
+		})
+	if got := s.currentReplicas(context.Background(), &target{selector: "app=demo"}); got != 0 {
+		t.Errorf("currentReplicas = %d, want 0 when every source fails", got)
+	}
+}
+
+// The scale subresource answering without a status.replicas field is not
+// an error, but it is also not a replica count: fall through rather than
+// reading the missing field as zero.
+func TestCurrentReplicas_ScaleWithoutReplicasFallsThrough(t *testing.T) {
+	s := scaleReactorSession(t, func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &unstructured.Unstructured{Object: map[string]any{
+			"status": map[string]any{"selector": "app=demo"},
+		}}, nil
+	})
+	tgt := &target{
+		selector: "app=demo",
+		hpa: &autoscalingv2.HorizontalPodAutoscaler{
+			Status: autoscalingv2.HorizontalPodAutoscalerStatus{CurrentReplicas: 7},
+		},
+	}
+	if got := s.currentReplicas(context.Background(), tgt); got != 7 {
+		t.Errorf("currentReplicas = %d, want 7: a scale with no status.replicas is not zero replicas", got)
+	}
+}
+
+// A pod whose dnsConfig carries a non-integer ndots is a user typo, not a
+// reason to lose the whole resilience audit: the DNS half drops and the
+// PDB half still runs.
+func TestCollectResilience_MalformedNDotsStillAuditsPDB(t *testing.T) {
+	pod := victimPod(&corev1.PodDNSConfig{
+		Options: []corev1.PodDNSConfigOption{{Name: "ndots", Value: ptr.To("five")}},
+	})
+	s := scaleReplicasSession(t, 2, pod)
+
+	got := s.collectResilience(context.Background(), &target{samplePod: pod, selector: "app=demo"})
+	if got.dns != nil {
+		t.Errorf("dns report = %+v, want nil for an unparseable ndots", *got.dns)
+	}
+	if got.pdb == nil {
+		t.Error("pdb report is nil, a bad ndots value must not suppress the PDB audit")
+	}
+}
+
+// Without a selector there is no way to know which pods a budget would
+// have to cover, so the PDB audit is skipped. The DNS audit only needs
+// the sample pod and still runs.
+func TestCollectResilience_NoSelectorSkipsPDBOnly(t *testing.T) {
+	pod := victimPod(nil)
+	s := scaleReplicasSession(t, 2, pod)
+
+	got := s.collectResilience(context.Background(), &target{samplePod: pod})
+	if got.pdb != nil {
+		t.Errorf("pdb report = %+v, want nil without a selector", *got.pdb)
+	}
+	if got.dns == nil {
+		t.Error("dns report is nil, it does not depend on the selector")
+	}
+}
