@@ -152,3 +152,60 @@ func TestDiagnostics_SeverityBands(t *testing.T) {
 		})
 	}
 }
+
+// Two removals close enough that their drain windows overlap: the
+// two-pointer scan attributes an error to the earliest removal whose
+// window is still open, and must count it exactly once. Getting this
+// wrong double-counts a rolling restart's drops, which is precisely the
+// case where several pods leave the endpoint set inside one window.
+func TestCorrelate_OverlappingWindowsCountOnce(t *testing.T) {
+	start := t0()
+	events := []leakage.EndpointEvent{
+		{At: start.Add(10 * time.Second), PodIP: "10.0.0.1", Kind: leakage.EndpointRemoved},
+		{At: start.Add(12 * time.Second), PodIP: "10.0.0.2", Kind: leakage.EndpointRemoved},
+	}
+	errors := []leakage.ErrorSample{
+		{At: start.Add(13 * time.Second), Category: "ConnReset"}, // inside both windows
+		{At: start.Add(19 * time.Second), Category: "ConnReset"}, // inside the first only
+		{At: start.Add(23 * time.Second), Category: "Dial"},      // past both windows
+	}
+
+	r := Correlate(events, errors, 10*time.Second)
+	if r.DroppedRequests != 2 {
+		t.Errorf("DroppedRequests = %d, want 2 (no double counting across overlapping windows)", r.DroppedRequests)
+	}
+	if r.CleanRequests != 1 {
+		t.Errorf("CleanRequests = %d, want 1", r.CleanRequests)
+	}
+	total := 0
+	for _, cr := range r.Correlated {
+		total += len(cr.Errors)
+	}
+	if total != r.DroppedRequests {
+		t.Errorf("per-removal errors sum to %d, want %d (each drop attributed exactly once)", total, r.DroppedRequests)
+	}
+}
+
+// Simultaneous removals (a two-pod eviction landing in one informer
+// event) share a timestamp, so the sort is not a total order. The scan
+// must still terminate and attribute each drop once.
+func TestCorrelate_SimultaneousRemovals(t *testing.T) {
+	start := t0()
+	at := start.Add(10 * time.Second)
+	events := []leakage.EndpointEvent{
+		{At: at, PodIP: "10.0.0.1", Kind: leakage.EndpointRemoved},
+		{At: at, PodIP: "10.0.0.2", Kind: leakage.EndpointRemoved},
+	}
+	errors := []leakage.ErrorSample{
+		{At: at.Add(500 * time.Millisecond), Category: "ConnReset"},
+		{At: at.Add(time.Second), Category: "ConnReset"},
+	}
+
+	r := Correlate(events, errors, 5*time.Second)
+	if r.DroppedRequests != 2 || r.CleanRequests != 0 {
+		t.Errorf("Dropped=%d Clean=%d, want 2/0", r.DroppedRequests, r.CleanRequests)
+	}
+	if r.RemovalCount != 2 {
+		t.Errorf("RemovalCount = %d, want 2", r.RemovalCount)
+	}
+}

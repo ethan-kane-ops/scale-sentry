@@ -148,3 +148,106 @@ func waitForHPAMetrics(ctx context.Context, c client.Client, ns, name string, ti
 	}
 	return fmt.Errorf("HPA %s/%s has no resource metrics after %s", ns, name, timeout)
 }
+
+// The disruption scenario never autoscales, so it has no use for
+// hpa-example's sqrt loop. What it needs is requests in flight when the
+// victim dies, because that is all UngracefulDrain can see, and
+// in-flight is rate x service time, not rate. hpa-example's ~50ms of CPU
+// per request caps the run at ~10 RPS per pod on a 2-core runner, and
+// buying more rate does not help either: measured at 300 RPS against a
+// 2ms echo the analyzer still saw exactly 2 drops, because under one
+// request was ever in the air and only the client's pooled connections
+// could fail.
+//
+// whoami answers in ~2ms for ~0.1ms of CPU and takes a ?wait= parameter
+// that sleeps without burning any, so service time becomes a free,
+// directly controlled input. That is the lever this fixture exists to
+// provide.
+const (
+	drainVictimImage = "traefik/whoami:v1.10.3"
+	// drainVictimSlowPath holds each request open long enough that a
+	// meaningful number are in flight at the kill. Paired with the
+	// scenario's rate it sets the expected drop count: at 300 RPS,
+	// 200ms of service time means ~60 in flight and ~30 on the victim,
+	// far enough above the 1-3 of the old fixture that a single
+	// mis-bucketed timestamp can no longer zero the diagnostic.
+	drainVictimSlowPath = "/?wait=200ms"
+	drainVictimPort     = int32(8080)
+	drainVictimCPUReq   = "25m"
+	drainVictimCPULim   = "200m"
+	drainVictimMemReq   = "32Mi"
+	drainVictimMemLim   = "64Mi"
+	// drainVictimGrace bounds the gap between SIGTERM and SIGKILL.
+	// whoami exits on SIGTERM without draining in-flight requests, which
+	// is exactly the behaviour the scenario exists to catch; pinning the
+	// grace period states that intent rather than inheriting the 30s
+	// default, and guarantees the container is gone well inside the
+	// analyzer's 10s drain window.
+	//
+	// The fixture deliberately has no preStop hook. A preStop sleep is
+	// the remediation the UngracefulDrain diagnostic recommends, so
+	// adding one here would suppress the signal under test.
+	drainVictimGrace = int64(1)
+)
+
+// drainVictimDeployment is the target for the disruption scenario: a
+// cheap echo server with an explicitly ungraceful shutdown profile. It is
+// separate from targetDeployment because the two fixtures want opposite
+// things — targetDeployment burns CPU so the HPA reacts, this one burns
+// as little as possible so the run can afford rate.
+func drainVictimDeployment(ns string, labels map[string]string, replicas int32) *appsv1.Deployment {
+	grace := drainVictimGrace
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: ns, Labels: labels},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					TerminationGracePeriodSeconds: &grace,
+					Containers: []corev1.Container{{
+						Name:            "whoami",
+						Image:           drainVictimImage,
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						Args:            []string{fmt.Sprintf("--port=%d", drainVictimPort)},
+						Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: drainVictimPort}},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse(drainVictimCPUReq),
+								corev1.ResourceMemory: resource.MustParse(drainVictimMemReq),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse(drainVictimCPULim),
+								corev1.ResourceMemory: resource.MustParse(drainVictimMemLim),
+							},
+						},
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{
+								HTTPGet: &corev1.HTTPGetAction{
+									Path: "/", Port: intstr.FromInt32(drainVictimPort),
+								},
+							},
+							PeriodSeconds:    2,
+							FailureThreshold: 3,
+						},
+					}},
+				},
+			},
+		},
+	}
+}
+
+// drainVictimService fronts drainVictimDeployment on targetPort, so the
+// scenario's CR keeps the same spec.target.port as every other fixture.
+func drainVictimService(ns string, labels map[string]string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: ns, Labels: labels},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{{
+				Name: "http", Port: targetPort, TargetPort: intstr.FromInt32(drainVictimPort),
+			}},
+		},
+	}
+}

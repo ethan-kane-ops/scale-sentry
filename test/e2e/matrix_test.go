@@ -116,12 +116,18 @@ func TestE2E_GatewayVerdict(t *testing.T) {
 }
 
 // TestE2E_DisruptionDrainDiagnostics runs spec.disruption end to end: two
-// healthy replicas, a pod kill at the trigger point, and the observer's
-// drain analyzer catching the requests the dying pod failed to drain. The
-// run legitimately lands on Failed when the drops push traffic integrity
-// over the line; that failure IS the feature working, so both terminal
-// verdict phases are accepted and the assertions target the injection
-// condition and the UngracefulDrain diagnostic.
+// healthy replicas of the ungraceful-shutdown victim fixture, a pod kill
+// at the trigger point, and the observer's drain analyzer catching the
+// requests the dying pod failed to drain. The run legitimately lands on
+// Failed when the drops push traffic integrity over the line; that
+// failure IS the feature working, so both terminal verdict phases are
+// accepted and the assertions target the injection condition and the
+// UngracefulDrain diagnostic.
+//
+// The scenario runs drainVictimDeployment rather than the shared
+// targetDeployment: it never autoscales, so hpa-example's per-request
+// CPU cost buys nothing and starves the run of the rate the correlation
+// needs. See the drainVictim block in target.go.
 func TestE2E_DisruptionDrainDiagnostics(t *testing.T) {
 	skipUnlessFullMatrix(t)
 	c := newE2EClient(t)
@@ -134,11 +140,8 @@ func TestE2E_DisruptionDrainDiagnostics(t *testing.T) {
 	applyObserverRBAC(t, c, ctx, ns.Name)
 
 	labels := map[string]string{"app": "target"}
-	deploy := targetDeployment(ns.Name, labels)
-	two := int32(2)
-	deploy.Spec.Replicas = &two
-	mustCreate(t, c, ctx, deploy)
-	mustCreate(t, c, ctx, targetService(ns.Name, labels))
+	mustCreate(t, c, ctx, drainVictimDeployment(ns.Name, labels, 2))
+	mustCreate(t, c, ctx, drainVictimService(ns.Name, labels))
 	if err := waitForDeploymentReady(ctx, c, ns.Name, "target", deploymentReadyAfter); err != nil {
 		t.Fatalf("target not ready: %v", err)
 	}
@@ -153,12 +156,26 @@ func TestE2E_DisruptionDrainDiagnostics(t *testing.T) {
 			// scaledSLA): the kill lands at 30s, leaving at least a full
 			// minute of measured traffic to correlate against the
 			// endpoint removal.
-			SLA:    metav1.Duration{Duration: scaledSLA(90 * time.Second)},
-			Target: v1beta1.TargetConfig{Mode: "ServiceDefault", Port: targetPort, NetworkPath: "ClusterIP"},
-			// hpa-example costs ~50ms CPU per request; 20 RPS across two
-			// replicas keeps the node comfortable while giving the drain
-			// window enough in-flight traffic to catch dropped requests.
-			Load: v1beta1.LoadConfig{BaseRPS: 20, ConcurrencyFactor: 1},
+			SLA: metav1.Duration{Duration: scaledSLA(90 * time.Second)},
+			// The victim has to be *slow* for this scenario to have
+			// anything to detect. UngracefulDrain catches the requests
+			// that were in flight when the pod stopped serving, and by
+			// Little's Law in-flight = rate x service time, so against a
+			// 2ms echo even 300 RPS leaves well under one request in the
+			// air and the analyzer can only ever see the one or two
+			// pooled connections the client held. whoami's ?wait= is a
+			// pure sleep (no CPU), so 200ms of service time puts
+			// 300 x 0.2 = ~60 requests in flight, ~30 of them on the
+			// victim, for free.
+			Target: v1beta1.TargetConfig{
+				Mode: "CustomPath", CustomPath: drainVictimSlowPath,
+				Port: targetPort, NetworkPath: "ClusterIP",
+			},
+			// Concurrency is pinned rather than derived: the default is
+			// min(peakRPS, 256), which would be 300 here and leaves the
+			// pool size drifting with the rate. 150 workers comfortably
+			// covers the ~60 concurrent slots the profile above needs.
+			Load: v1beta1.LoadConfig{BaseRPS: 300, Concurrency: 150},
 			Disruption: &v1beta1.DisruptionConfig{
 				InjectPodDeletion:   true,
 				MinReplicasForChaos: 2,

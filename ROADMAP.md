@@ -35,6 +35,14 @@ This is a statement of direction, not a promise of dates. Items move when eviden
 - **`spec.load.concurrency`**: an explicit load-generator worker-pool size, the ceiling on
   requests in flight. Unset derives it from the peak rate, capped at 256, which throttles a slow
   target's arrivals into a closed loop and understates latency.
+- **Deterministic drain e2e**: `UngracefulDrain` can only see requests that were *in flight* when
+  the victim stopped serving, and in-flight is rate x service time, not rate. The old fixture paid
+  ~50ms of CPU per request for an `hpa-example` target it never autoscaled, which held the run to
+  ~10 RPS per pod and a 1-3 request sample, thin enough that one mis-bucketed timestamp zeroed the
+  diagnostic. Buying rate alone does not fix it: measured at 300 RPS against a 2ms echo, the
+  analyzer still saw exactly 2 drops. The scenario now drives a `traefik/whoami` target through its
+  `?wait=` parameter, which adds service time without CPU, so 300 RPS at 200ms puts ~60 requests in
+  flight and lands a ~30 request sample. Measured across four consecutive local runs.
 
 ## Deprecations
 
