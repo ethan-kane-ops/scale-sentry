@@ -10,3 +10,5 @@ coverage.txt
 # Docs site (generated)
 site/
 docs/reference/api.md
+scale-sentry.cast
+*.cast
