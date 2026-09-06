@@ -298,3 +298,48 @@ docs-serve: docs-api
 # Build the static docs site into ./site (regenerates API ref first)
 docs-build: docs-api
     uv run --with-requirements docs/requirements.txt mkdocs build --strict
+
+# Prepare the cluster for a demo recording (not itself recorded)
+#
+# Split from `cast` so the take opens on a cluster that is already up. Doing
+# this inside the recording would put several minutes of image builds and a
+# metrics-server rollout in front of the part anyone wants to watch.
+[doc("Prepare the cluster for a demo recording")]
+cast-setup: dev-up
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # podinfo is pulled as a multi-platform index, and `kind load` asks ctr to
+    # import every platform including the blobs that were never fetched. Rebuilt
+    # from it, the local image has one platform and every layer. Preloading is
+    # not optional here: the HPA walks to five replicas inside a 90s SLA, and
+    # five parallel registry pulls would blow that budget and fail a run that
+    # had nothing wrong with it.
+    echo "FROM ghcr.io/stefanprodan/podinfo:6.6.2" | docker build -q -t ghcr.io/stefanprodan/podinfo:6.6.2 - >/dev/null
+    kind load docker-image --name {{kind_cluster}} ghcr.io/stefanprodan/podinfo:6.6.2
+    kubectl apply -f config/samples/targets/podinfo.yaml
+    kubectl wait --for=condition=Available --timeout=180s deploy/podinfo
+    # A previous run left behind would make the recording open on a finished
+    # verdict instead of producing one.
+    kubectl delete scalevalidation podinfo-default --ignore-not-found --wait
+    # The HPA reports <unknown> until metrics-server has scraped it, and a run
+    # started in that window is measuring an autoscaler that cannot yet act.
+    echo "▶ waiting for the HPA to have metrics"
+    until kubectl get hpa podinfo --no-headers 2>/dev/null | grep -qv "<unknown>"; do sleep 10; done
+    kubectl get hpa podinfo
+    echo "✓ ready to record"
+
+# Record the demo cast that ships on the site
+#
+# The run is real and takes about 90 seconds. --idle-time-limit trims the wait
+# on playback without altering the timestamps. The cast is not committed here;
+# it ships in the site repo next to the page that embeds it.
+[doc("Record the demo cast that ships on the site")]
+cast out="scale-sentry.cast":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -f {{out}}
+    asciinema rec {{out}} \
+      --window-size 96x30 \
+      --idle-time-limit 2 \
+      --command hack/demo-cast.sh
+    echo "✓ recorded {{out}} — copy it to the site repo's public/casts/"
