@@ -22,6 +22,7 @@ build:
 
 # Install controller-gen + setup-envtest at pinned versions into $GOBIN.
 # setup-envtest is module-aware (version from go.mod via hack/tools.go).
+[doc("Install controller-gen + setup-envtest at pinned versions")]
 tools:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -62,6 +63,7 @@ fuzz fuzztime="30s":
 # -coverpkg widens attribution so envtest reconciler exercise counts toward the
 # controller package and so cross-package calls (e.g. loadgen → metrics) score
 # the callee, matching karpenter/cilium/tekton convention.
+[doc("Run unit + envtest with coverage into coverage.out")]
 cover: tools
     #!/usr/bin/env bash
     set -euo pipefail
@@ -99,6 +101,7 @@ clean:
 # BuildKit-only variable. Colima without the buildx plugin installed falls
 # back to the legacy builder otherwise, which leaves $BUILDPLATFORM empty and
 # fails platform parsing.
+[doc("Build the controller, loadgen and observer images")]
 docker-build:
     DOCKER_BUILDKIT=1 docker build --build-arg CMD=scale-sentry -t scale-sentry:{{image_tag}} .
     DOCKER_BUILDKIT=1 docker build --build-arg CMD=loadgen      -t scale-sentry-loadgen:{{image_tag}} .
@@ -118,6 +121,7 @@ helm-package:
 # Overrides controller.image.repository to the local (un-prefixed) name because
 # `just docker-build` tags images as `scale-sentry:<tag>`, while the chart's
 # default repository is `ghcr.io/ethan-kane-ops/scale-sentry` for releases.
+[doc("Helm upgrade-install the chart against the current kubeconfig context")]
 deploy:
     helm upgrade --install scale-sentry charts/scale-sentry \
         --set controller.image.repository=scale-sentry \
@@ -153,6 +157,7 @@ kind-load: docker-build
 # Full verdict E2E: build images, load into Kind (incl. hpa-example so
 # scale-up does not trigger a 5x parallel registry.k8s.io pull storm
 # that can starve the Kind control plane), install chart, run the suite.
+[doc("Full verdict E2E: build and load images into kind, install chart, run the suite")]
 test-e2e: kind-create kind-load deploy
     #!/usr/bin/env bash
     set -euo pipefail
@@ -170,6 +175,7 @@ test-e2e: kind-create kind-load deploy
 # Gateway + the config/e2e protocol fixtures. Nightly CI runs this; local
 # runs take ~30 min cold. Fixture images are pre-loaded into Kind so HPA
 # scale-up never stalls on docker.io pulls mid-measurement.
+[doc("Full scenario matrix E2E (nightly in CI, ~30 min cold locally)")]
 test-e2e-matrix: kind-create kind-load deploy envoy-gateway
     #!/usr/bin/env bash
     set -euo pipefail
@@ -191,6 +197,7 @@ envoy-gateway:
 
 # Install metrics-server; HPAs cannot act without it, and kind kubelets
 # serve self-signed certs so the insecure-tls patch is required.
+[doc("Install metrics-server (HPAs need it) with the kind TLS patch")]
 metrics-server:
     kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
     kubectl -n kube-system patch deploy metrics-server --type=json \
@@ -208,6 +215,7 @@ dev-down: undeploy kind-delete
 # config/rbac/observer_role.yaml. That file was symlinked into the chart
 # until ENG-151; templating it per namespace made a symlink impossible, so
 # this recipe is the drift gate that replaces the symlink's guarantee.
+[doc("Verify the chart's observer RBAC matches config/rbac/observer_role.yaml")]
 observer-rbac-check:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -229,6 +237,7 @@ observer-rbac-check:
 # The chart hand-templates RBAC so it can release-name-prefix the ClusterRole;
 # this recipe is the drift gate that keeps it honest with the kubebuilder
 # markers (CRDs + observer RBAC are symlinked, so they cannot drift at all).
+[doc("Verify the chart's manager ClusterRole matches config/rbac/role.yaml")]
 chart-rbac-check:
     #!/usr/bin/env bash
     set -euo pipefail
