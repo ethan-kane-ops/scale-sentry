@@ -21,7 +21,7 @@ const (
 
 // Protocol selects the HTTP wire protocol used to dispatch requests.
 // HTTP1 uses fasthttp (the original loadgen client). HTTP2 uses net/http
-// + golang.org/x/net/http2.Transport: a single TCP/TLS connection carries
+// HTTP/2 transport: a single TCP/TLS connection carries
 // many concurrent streams, exercising the path real h2 services hit at
 // scale (connection-pool dynamics, GOAWAY handling, stream-reset cost).
 type Protocol string
@@ -106,7 +106,7 @@ type Config struct {
 	TLSCABundlePath string
 
 	// Protocol selects the wire protocol. Defaults to ProtocolHTTP1
-	// (fasthttp). ProtocolHTTP2 swaps in a net/http + http2.Transport
+	// (fasthttp). ProtocolHTTP2 swaps in a net/http HTTP/2
 	// client. ProtocolGRPC swaps in a grpc-go client that drives the
 	// standard health probe. All clients honor the same Timeout,
 	// Headers, ConnectionMode, and TLS* fields where the protocol
