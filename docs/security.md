@@ -90,7 +90,8 @@ The loadgen container has **no** Kubernetes RBAC. It opens HTTP connections to t
 Every released image and the OCI chart are signed with [cosign](https://docs.sigstore.dev/) keyless signing. The signing identity is the GitHub Actions OIDC token bound to this repository's release workflow, so there are no keys to distribute. Verify provenance before installing:
 
 ```bash
-cosign verify ghcr.io/ethan-kane-ops/scale-sentry:v0.2.0 \
+VERSION=v0.5.0  # any release tag
+cosign verify ghcr.io/ethan-kane-ops/scale-sentry:$VERSION \
   --certificate-identity-regexp 'https://github.com/ethan-kane-ops/scale-sentry/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

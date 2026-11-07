@@ -141,7 +141,8 @@ this repository's release workflow, so there are no keys to distribute. Verify
 provenance before installing:
 
 ```bash
-cosign verify ghcr.io/ethan-kane-ops/scale-sentry:v0.3.0 \
+VERSION=v0.5.0  # any release tag
+cosign verify ghcr.io/ethan-kane-ops/scale-sentry:$VERSION \
   --certificate-identity-regexp 'https://github.com/ethan-kane-ops/scale-sentry/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -154,7 +155,7 @@ attestation and an SBOM, published to the registry by the release workflow.
 Verify the provenance with the GitHub CLI:
 
 ```bash
-gh attestation verify oci://ghcr.io/ethan-kane-ops/scale-sentry:v0.3.0 \
+gh attestation verify oci://ghcr.io/ethan-kane-ops/scale-sentry:$VERSION \
   --repo ethan-kane-ops/scale-sentry
 ```
 
