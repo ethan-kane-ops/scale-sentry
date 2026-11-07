@@ -2,31 +2,26 @@ package loadgen
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptrace"
 	"strings"
-
-	"golang.org/x/net/http2"
 )
 
 // h2Client speaks HTTP/2. For https:// URLs ALPN negotiates h2; for
 // http:// URLs the client uses h2c prior-knowledge (no upgrade dance,
-// dial straight into a binary-framed connection). It wraps net/http +
-// http2.Transport so we get GOAWAY surfacing and per-stream
-// cancellation for free.
+// dial straight into a binary-framed connection). It uses net/http's
+// own HTTP/2 transport, restricted to HTTP/2 via Transport.Protocols, so
+// GOAWAY surfacing and per-stream cancellation come for free.
 //
 // Connection / stream stats are tracked via httptrace.ClientTrace:
 // every successful GotConn fires, so we can distinguish a new TCP/TLS
 // connection (Reused=false → ConnsOpened++) from a multiplexed stream
 // on an existing one (Reused=true → only StreamsIssued++). The ratio
-// approximates streams-per-connection. GOAWAY count is read from the
-// http2.GoAwayError wrapper since the Transport does not expose a
-// public callback.
+// approximates streams-per-connection. GOAWAY count comes from the
+// request error: net/http's HTTP/2 GOAWAY error type is unexported, so
+// it is matched by its message, as classify() does.
 type h2Client struct {
 	cfg    Config
 	client *http.Client
@@ -51,40 +46,21 @@ func newH2Client(cfg Config) (*h2Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Advertise h2 in ALPN. An https:// URL will then negotiate HTTP/2
-	// with the server; a server lacking h2 hard-fails here rather than
-	// silently downgrading to HTTP/1.1 and confusing the verdict.
-	tlsCfg.NextProtos = []string{"h2"}
+	// HTTP/2 only, HTTP/1.1 off: an https:// URL negotiates h2 via ALPN
+	// and a server lacking h2 hard-fails rather than silently
+	// downgrading to HTTP/1.1 and confusing the verdict. An http:// URL
+	// uses h2c prior knowledge (unencrypted HTTP/2, no upgrade).
+	protocols := new(http.Protocols)
+	protocols.SetHTTP2(true)
+	protocols.SetUnencryptedHTTP2(true)
 
-	// Capture the URL scheme by value so the DialTLSContext closure
-	// does not have to inspect the request later. AllowHTTP=true makes
-	// http2.Transport route http:// dials through DialTLSContext as
-	// well, so the closure has to handle both schemes.
-	isHTTPS := strings.HasPrefix(cfg.URL, "https://")
-
-	transport := &http2.Transport{
+	transport := &http.Transport{
 		TLSClientConfig: tlsCfg,
-		AllowHTTP:       true,
-		DialTLSContext: func(ctx context.Context, network, addr string, dialCfg *tls.Config) (net.Conn, error) {
-			var d net.Dialer
-			conn, err := d.DialContext(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			if !isHTTPS {
-				// h2c prior-knowledge: hand back the raw TCP conn,
-				// http2.Transport will run HTTP/2 framing over it.
-				return conn, nil
-			}
-			tlsConn := tls.Client(conn, dialCfg)
-			if err := tlsConn.HandshakeContext(ctx); err != nil {
-				_ = conn.Close()
-				return nil, err
-			}
-			return tlsConn, nil
+		Protocols:       protocols,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: cfg.Timeout,
+			PingTimeout:     cfg.Timeout,
 		},
-		ReadIdleTimeout: cfg.Timeout,
-		PingTimeout:     cfg.Timeout,
 	}
 	c := &h2Client{
 		cfg: cfg,
@@ -127,17 +103,16 @@ func (h *h2Client) Do(ctx context.Context) (int, error) {
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		// Map GOAWAY-wrapped errors into the goAway counter so the
-		// post-run stats reflect server-side connection shedding.
-		var goAwayErr *http2.GoAwayError
-		if errors.As(err, &goAwayErr) {
+		// Count GOAWAY errors so the post-run stats reflect server-side
+		// connection shedding.
+		if strings.Contains(err.Error(), "server sent GOAWAY") {
 			h.stats.goAway.Add(1)
 		}
 		return 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	// Drain the body so the underlying stream is fully released back to
-	// the connection pool; otherwise http2.Transport keeps the stream
+	// the connection pool; otherwise the transport keeps the stream
 	// open and subsequent requests on the same conn stall.
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode, nil

@@ -63,7 +63,7 @@ func main() {
 	f.BoolVar(&o.tlsInsecure, "tls-insecure-skip-verify", false, "disable TLS certificate verification (dev / CI only, masks TLS failures)")
 	f.StringVar(&o.tlsCABundle, "tls-ca-bundle", "", "path to a PEM-encoded CA bundle to trust (for private ingress CAs)")
 	f.StringVar(&o.phasesJSON, "phases", "", "JSON-encoded []loadgen.Phase replacing --rps/--duration with a phased run (warmup, ramp, spike)")
-	f.StringVar(&o.protocol, "protocol", "", "wire protocol: HTTP1 (default, fasthttp), HTTP2 (net/http + http2.Transport), or GRPC (grpc-go Health/Check probe)")
+	f.StringVar(&o.protocol, "protocol", "", "wire protocol: HTTP1 (default, fasthttp), HTTP2 (net/http HTTP/2 transport), or GRPC (grpc-go Health/Check probe)")
 	f.StringVar(&o.grpcService, "grpc-service", "", "service name passed to the gRPC Health/Check probe (empty = overall server health). Used only when --protocol=GRPC")
 
 	_ = cmd.MarkFlagRequired("url")

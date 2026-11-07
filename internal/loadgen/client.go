@@ -16,7 +16,7 @@ import (
 
 // protocolClient is the abstraction over the loadgen's request dispatcher.
 // Two implementations exist today: an HTTP/1.1 client backed by fasthttp
-// (h1Client) and an HTTP/2 client backed by net/http + http2.Transport
+// (h1Client) and an HTTP/2 client backed by net/http's own HTTP/2 transport
 // (h2Client). The interface is intentionally small, just enough for the
 // per-phase worker loop and the post-run stats roll-up, so adding a third
 // protocol (gRPC, planned) only requires implementing it.
@@ -49,7 +49,7 @@ type ClientStats struct {
 }
 
 // newProtocolClient returns the protocolClient matching cfg.Protocol.
-// HTTP1 keeps fasthttp; HTTP2 uses net/http + http2.Transport. The
+// HTTP1 keeps fasthttp; HTTP2 uses net/http's HTTP/2 transport. The
 // returned client honors cfg's Timeout, Headers, Method, ConnectionMode,
 // and TLS* fields.
 func newProtocolClient(cfg Config) (protocolClient, error) {
@@ -136,7 +136,7 @@ func classify(err error) ErrorCategory {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "GOAWAY"):
-		// http2 surfaces GOAWAY via the http2.GoAwayError wrapper; map
+		// net/http reports GOAWAY as "server sent GOAWAY ..."; map
 		// to ErrServer per the ENG-56 design (treat as upstream 5xx).
 		return ErrServer
 	case strings.Contains(msg, "stream error"), strings.Contains(msg, "RST_STREAM"):

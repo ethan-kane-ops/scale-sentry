@@ -118,7 +118,7 @@ func (g *Generator) worker(ctx context.Context, wg *sync.WaitGroup, c *collector
 // that backs the workers up will show up as elevated latency rather than
 // hidden queue depth (the coordinated-omission fix). The actual wire
 // dispatch is delegated to g.client (HTTP/1 via fasthttp or HTTP/2 via
-// net/http + http2.Transport).
+// net/http's HTTP/2 transport).
 func (g *Generator) do(ctx context.Context, c *collector, phase *Phase, slot scheduledArrival) {
 	// If we're early, hold the request until its scheduled instant. This
 	// keeps the arrival distribution honest under low CPU contention; if
