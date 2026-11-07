@@ -1,6 +1,6 @@
 // Package loadgen implements a high-throughput HTTP load generator. By
 // default it dispatches via fasthttp (HTTP/1.1); when Config.Protocol
-// is set to ProtocolHTTP2 it swaps in a net/http + http2.Transport
+// is set to ProtocolHTTP2 it swaps in a net/http HTTP/2
 // client speaking ALPN-negotiated h2 (TLS) or prior-knowledge h2c
 // (cleartext). When set to ProtocolGRPC it swaps in a grpc-go client
 // that drives the canonical grpc.health.v1.Health/Check probe so HPAs
