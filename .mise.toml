@@ -1,5 +1,5 @@
 [tools]
-go = "1.26.10"
+go = "1.26.11"
 golangci-lint = "2.12.2"
 just = "1.51.0"
 kubeconform = "0.7.0"
