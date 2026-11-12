@@ -12,6 +12,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
 	github.com/valyala/fasthttp v1.77.0
+	go.uber.org/goleak v1.3.0
 	golang.org/x/net v0.62.0
 	golang.org/x/vuln v1.9.0
 	google.golang.org/grpc v1.85.0
