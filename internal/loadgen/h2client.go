@@ -127,6 +127,9 @@ func (h *h2Client) Stats() ClientStats {
 	}
 }
 
+// Close drops idle HTTP/2 connections.
+func (h *h2Client) Close() { h.client.CloseIdleConnections() }
+
 // Compile-time guard: every protocolClient must satisfy the contract,
 // and the package's New() depends on h1Client/h2Client both meeting it.
 var (
