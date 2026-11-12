@@ -158,6 +158,14 @@ func (g *grpcClient) Do(ctx context.Context) (int, error) {
 	return 200, nil
 }
 
+// Close tears down the KeepAlive ClientConn, which otherwise outlives the
+// run along with its goroutines. ShortLived conns close after each Do.
+func (g *grpcClient) Close() {
+	if g.keepaliveConn != nil {
+		_ = g.keepaliveConn.Close()
+	}
+}
+
 // Stats reports the live gRPC subconn and stream counters. GoAwayCount is
 // always 0: grpc-go handles GOAWAY transparently by tearing the subconn
 // down and reconnecting, so the observable signal is elevated ConnsOpened,

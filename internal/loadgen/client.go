@@ -30,6 +30,9 @@ type protocolClient interface {
 	// every Do call. Safe to read after the run finishes; values during
 	// a live run are best-effort.
 	Stats() ClientStats
+	// Close releases connections held across Do calls. Called once,
+	// after the last Do.
+	Close()
 }
 
 // ClientStats holds counters the loadgen exposes in Result.Labels for
@@ -120,6 +123,10 @@ func (h *h1Client) Do(_ context.Context) (int, error) {
 // Stats reports zeroes; fasthttp does not surface per-connection stream
 // counts, and HTTP/1 has no GOAWAY equivalent.
 func (h *h1Client) Stats() ClientStats { return ClientStats{} }
+
+// Close drops idle keep-alive connections. fasthttp's cleaner goroutines
+// exit on their own once the client stays idle.
+func (h *h1Client) Close() { h.client.CloseIdleConnections() }
 
 // classify maps a transport-level dispatch error to an ErrorCategory.
 // Shared across h1 and h2 paths so error taxonomy stays consistent.

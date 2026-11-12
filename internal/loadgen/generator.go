@@ -56,7 +56,11 @@ func New(cfg Config) (*Generator, error) {
 // pile up in the channel, and the latency reflects the full
 // user-visible delay (queue wait + response time), not just the network
 // roundtrip after dispatch.
+//
+// Run releases the client's connections when it returns, so a Generator
+// runs once.
 func (g *Generator) Run(ctx context.Context) Result {
+	defer g.client.Close()
 	collector := newCollector()
 	collector.start = time.Now()
 
